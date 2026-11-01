@@ -569,6 +569,22 @@ function makeExportUiHarness(storage = null, useAsyncStorage = false,
     };
 }
 
+test("progress text only reports pages and records, not an obsolete checking phase", async () => {
+    const ui = makeExportUiHarness();
+    ui.launcher.listeners.click();
+    await ui.settle();
+    ui.pending[0](ok(page([msg("new")], "cursor", true)));
+    await ui.settle();
+    await ui.settle();
+    const panel = ui.visiblePanel();
+    assert.match(panel.children[2].textContent,
+        /^1 API pages, 1 message records$/);
+    assert.doesNotMatch(panel.children[2].textContent, /checking for older pages/);
+    ui.pending[1](ok(page([msg("old")], "end", false)));
+    await ui.settle();
+    await ui.settle();
+});
+
 test("Close hides progress until explicitly reopened and never cancels active work", async () => {
     const ui = makeExportUiHarness();
     ui.launcher.listeners.click();
@@ -1261,7 +1277,7 @@ test("export completion displays cumulative active duration and both uncompresse
     assert.match(panel.children[2].textContent,
         /1 API pages, 1 unique message records;/);
     assert.match(panel.children[2].textContent,
-        /Duration: 2m 5\.4s \(active\)/);
+        /Duration: 2m 5s \(active\)/);
     assert.match(panel.children[2].textContent,
         /JSON uncompressed: \d+\.\d{2} MiB;/);
     assert.match(panel.children[2].textContent,
@@ -1285,4 +1301,16 @@ test("profiler completion duration includes resumed active runs but excludes pau
     assert.equal(profiler.report().summary.active_run_ms, 4500);
     profiler.runEnded(resumed);
     assert.equal(profiler.report().summary.active_run_ms, 69800);
+});
+
+test("duration formatter rounds up across minute and hour boundaries", () => {
+    const entry = fs.readFileSync(path.join(__dirname, "../src/userscript-entry.js"), "utf8");
+    const match = entry.match(/    function formatDuration\(milliseconds\) \{[\s\S]*?\n    \}/);
+    assert.ok(match);
+    const formatDuration = new Function(match[0] + "\nreturn formatDuration;")();
+    assert.equal(formatDuration(0), "0s");
+    assert.equal(formatDuration(125432), "2m 5s");
+    assert.equal(formatDuration(142900), "2m 23s");
+    assert.equal(formatDuration(59800), "1m 0s");
+    assert.equal(formatDuration(3599600), "1h 0m 0s");
 });
