@@ -164,7 +164,7 @@ test("repeated cursors fail without claiming completeness", async () => {
         "same": ok(page([msg("second")], "same", true))
     });
     const exporter = session(fetchImpl);
-    await assert.rejects(exporter.run(), /Wiederholter Cursor/);
+    await assert.rejects(exporter.run(), /Repeated page cursor/);
     assert.equal(exporter.snapshot().pages, 1);
     assert.equal(exporter.snapshot().completed, false);
 });
@@ -172,15 +172,15 @@ test("repeated cursors fail without claiming completeness", async () => {
 test("missing cursor, malformed pages and max-page limit fail closed", async () => {
     assert.throws(() => validatePage({ messages: [msg("x")], page_info: {
         has_previous_page: true
-    }}), /Start-Cursor/);
+    }}), /start cursor/);
     assert.throws(() => validatePage({ messages: [], page_info: {
         has_previous_page: false
-    }}), /leere/);
+    }}), /empty API page/);
     const { fetchImpl } = fixture({
         "": ok(page([msg("latest")], "c1", true))
     });
     const exporter = session(fetchImpl, { maxPages: 1 });
-    await assert.rejects(exporter.run(), /Maximale Seitenzahl/);
+    await assert.rejects(exporter.run(), /Maximum API page limit/);
     assert.equal(exporter.snapshot().pages, 1);
 });
 
@@ -192,7 +192,7 @@ test("conflicting duplicate ID fails; identical overlap is deduplicated", () => 
     assert.equal(output.local_export_audit.unique_records, 1);
     assert.equal(output.local_export_audit.duplicate_records, 1);
     older.messages[0].content.parts[0] = "changed";
-    assert.throws(() => assembleExport([newer, older], ID, SOURCE), /Widersprüchliche/);
+    assert.throws(() => assembleExport([newer, older], ID, SOURCE), /Conflicting message ID/);
 });
 
 test("download bundle is self-contained and command does not auto-export", () => {
@@ -209,7 +209,7 @@ test("download bundle is self-contained and command does not auto-export", () =>
         }
     };
     vm.runInNewContext(code, context);
-    assert.match(menu.label, /JSON exportieren/);
+    assert.match(menu.label, /Export current chat as JSON/);
     assert.equal(typeof menu.callback, "function");
     // No DOM, fetch or download activity before the explicit menu action.
 });
@@ -225,7 +225,7 @@ test("Tampermonkey legacy menu API is registered without auto-export", () => {
         }
     };
     vm.runInNewContext(code, context);
-    assert.equal(menu.label, "Aktuellen Chat als JSON exportieren");
+    assert.equal(menu.label, "Export current chat as JSON");
     assert.equal(typeof menu.callback, "function");
 });
 
@@ -253,7 +253,83 @@ test("the in-page launcher exists even without a userscript menu API", () => {
         fetch: () => { exported = true; throw Error("unexpected fetch"); }
     });
     assert.equal(launcher.id, "chatgpt-conversation-export-launcher");
-    assert.equal(launcher.textContent, "Chat als JSON exportieren");
+    assert.equal(launcher.textContent, "Export chat as JSON");
     assert.equal(typeof launcher.onClick, "function");
     assert.equal(exported, false);
+});
+
+
+test("profiling captures page timing and retries without collecting private data", async () => {
+    const { createExportProfiler } = require("../src/profiling.js");
+    let time = 100;
+    const profiler = createExportProfiler({ now: () => time });
+    let responseCount = 0;
+    const confidentialUrl = "/backend-api/conversations/" + ID +
+        "/messages?before=secret-cursor";
+    const wrapper = profiler.instrumentFetch(async (_url, _options) => {
+        time += 20;
+        responseCount++;
+        return {
+            ok: responseCount > 1,
+            status: responseCount > 1 ? 200 : 503,
+            headers: { get: () => "512" },
+            json: async () => {
+                time += 5;
+                return { messages: [msg("secret-message-id")] };
+            }
+        };
+    }, () => 1);
+
+    const first = await wrapper(confidentialUrl, {
+        headers: { Authorization: "Bearer super-secret" }
+    });
+    assert.equal(first.ok, false);
+    const second = await wrapper(confidentialUrl, {
+        headers: { Authorization: "Bearer super-secret" }
+    });
+    await second.json();
+
+    profiler.trackPage({ pages: 1, records: 11 });
+    profiler.runEnded(profiler.runStarted() - 150);
+    profiler.noteDownload({ serialization_ms: 36, json_bytes: 2048 });
+    const profile = profiler.report();
+
+    assert.equal(profile.completed, true);
+    assert.equal(profile.summary.api_pages_completed, 1);
+    assert.equal(profile.summary.message_records, 11);
+    assert.equal(profile.summary.retries, 1);
+    assert.equal(profile.summary.message_http_attempts, 2);
+    assert.equal(profile.summary.request_status_counts["503"], 1);
+    assert.equal(profile.summary.request_status_counts["200"], 1);
+    assert.equal(profile.summary.network_header_wait_ms, 40);
+    assert.equal(profile.summary.response_json_parse_ms, 5);
+    assert.equal(profile.summary.json_serialization_ms, 36);
+    assert.equal(profile.summary.exported_json_bytes, 2048);
+    assert.equal(profile.pages[0].message_records, 11);
+    const serialized = JSON.stringify(profile);
+    for (const privateValue of [ID, "secret-cursor", "super-secret", "secret-message-id"]) {
+        assert.equal(serialized.includes(privateValue), false);
+    }
+});
+
+test("profiling reports an interrupted export as incomplete and never saves automatically", async () => {
+    const { createExportProfiler } = require("../src/profiling.js");
+    const profiler = createExportProfiler({ now: () => 10 });
+    assert.equal(profiler.hasSamples(), false);
+    const profile = profiler.report();
+    assert.equal(profile.completed, false);
+    assert.equal(profile.summary.api_pages_completed, 0);
+    assert.equal(profile.summary.message_http_attempts, 0);
+});
+
+test("generated UI uses bottom-right launcher and a separate performance report action", () => {
+    const entry = fs.readFileSync(path.join(__dirname, "../src/userscript-entry.js"), "utf8");
+    assert.match(entry, /button\.textContent = "Export chat as JSON"/);
+    assert.match(entry, /right: "18px"/);
+    assert.doesNotMatch(entry, /left: "18px"/);
+    assert.match(entry, /bottom: "68px"/);
+    assert.match(entry, /Save performance report/);
+    assert.match(entry, /API pages/);
+    assert.match(entry, /state\.profiler\.noteDownload\(result\)/);
+    assert.match(entry, /profile\.report\(\)/);
 });
