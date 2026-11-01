@@ -243,6 +243,11 @@ test("the in-page launcher exists even without a userscript menu API", () => {
                     child.id === "chatgpt-conversation-export-launcher");
         } },
         getElementById: () => null,
+        createElementNS: () => ({
+            style: {},
+            setAttribute() {},
+            appendChild() {}
+        }),
         createElement: () => ({
             style: {},
             children: [],
@@ -378,6 +383,7 @@ test("Cancel is replaced by Save performance report on completion", async () => 
     const document = {
         body,
         createElement: node,
+        createElementNS: (_namespace, tagName) => node(tagName),
         getElementById: id => elements.find(e => e.id === id && e.isConnected) ?? null
     };
     let resolvePage;
@@ -489,6 +495,7 @@ function makeExportUiHarness(storage = null, useAsyncStorage = false,
     const document = {
         body,
         createElement: element,
+        createElementNS: (_namespace, tagName) => element(tagName),
         getElementById(id) {
             return elements.find(item => item.id === id && item.isConnected) ?? null;
         }
@@ -1010,8 +1017,23 @@ test("v0.2.0 compact launcher has an adjacent gear and only two numeric settings
     assert.equal(toolbar.children[1], ui.modeButton());
     assert.equal(ui.launcher.style.font, "11px/1.3 system-ui, sans-serif");
     assert.equal(ui.launcher.style.padding, "6px 9px");
-    assert.equal(ui.modeButton().textContent, "⚙");
-    assert.equal(ui.modeButton().attributes["aria-label"],
+    const settings = ui.modeButton();
+    assert.equal(settings.textContent, undefined, "no ship-wheel glyph");
+    assert.equal(settings.style.background, "transparent");
+    assert.equal(settings.style.border, "0");
+    assert.equal(settings.style.boxShadow, "none");
+    assert.equal(settings.style.color, "inherit");
+    assert.equal(ui.toolbar().style.color,
+        "var(--text-primary, var(--token-text-primary, inherit))");
+    const svg = settings.children[0];
+    assert.equal(svg.tagName, "svg");
+    assert.equal(svg.attributes.viewBox, "0 0 24 24");
+    assert.equal(svg.attributes.fill, "currentColor");
+    assert.equal(svg.attributes["aria-hidden"], "true");
+    assert.equal(svg.children[0].tagName, "path");
+    assert.equal(svg.children[0].attributes["fill-rule"], "evenodd");
+    assert.match(svg.children[0].attributes.d, /M 15 12 A 3 3/);
+    assert.equal(settings.attributes["aria-label"],
         "Export performance settings");
     ui.modeButton().listeners.click();
     assert.equal(ui.customTurns().value, "3");
@@ -1207,4 +1229,16 @@ test("export core supports configurable batches higher than three", async () => 
     assert.match(urls[0], /num_turns=16/);
     assert.throws(() => session(async () => ok({}),
         { numTurns: 1001 }), /numTurns/);
+});
+
+
+test("theme-aware gear has no filled button chrome, keeps keyboard focus and Dots untouched", () => {
+    const entry = fs.readFileSync(path.join(__dirname, "../src/userscript-entry.js"), "utf8");
+    assert.match(entry, /color: "var\(--text-primary, var\(--token-text-primary, inherit\)\)"/);
+    assert.match(entry, /background: "transparent", color: "inherit"/);
+    assert.match(entry, /document\.createElementNS\(svgNS, "svg"\)/);
+    assert.match(entry, /focus-visible/);
+    assert.match(entry, /setAttribute\("aria-label", settings\.title\)/);
+    assert.doesNotMatch(entry, /settings\.textContent = "⚙"/);
+    assert.match(entry, /chatgpt-conversation-export-dot-bounce/);
 });
