@@ -83,7 +83,7 @@ A completed export re-run after **Close** now initializes the new UI state befor
 
 ## Direct same-conversation A/B result: 0.1.7 vs 0.1.9
 
-On 2026-11-01, the user supplied **two completed performance reports of exactly the same conversation**, one from **v0.1.7** (baseline: \`num_turns=1\`, 250-ms inter-page delay) and one from **v0.1.9** (experimental: \`num_turns=2\`, 100-ms delay). **Neither raw report nor conversation data is committed**; this section records aggregate and paired statistics only.
+On 2026-11-01, the user supplied **two completed performance reports of exactly the same conversation**, one from **v0.1.7** (baseline: `num_turns=1`, 250-ms inter-page delay) and one from **v0.1.9** (experimental: `num_turns=2`, 100-ms delay). **Neither raw report nor conversation data is committed**; this section records aggregate and paired statistics only.
 
 | Measurement | v0.1.7 (baseline) | v0.1.9 (fast) | Delta |
 | --- | ---: | ---: | ---: |
@@ -118,8 +118,8 @@ Of the **144.494 s** saved in this one paired test, **120.702 s (83.5% of saving
 
 ### Next experiments proposed at the time
 
-1. Hold \`num_turns=2\` and compare **100-ms vs 250-ms** pacing with **the same chat**, to isolate request spacing.
-2. Hold pacing at 100 ms and compare **\`num_turns=2\` versus 3** only as an opt-in experiment with current retry/fallback protection, timeouts and complete-export verification.
+1. Hold `num_turns=2` and compare **100-ms vs 250-ms** pacing with **the same chat**, to isolate request spacing.
+2. Hold pacing at 100 ms and compare **`num_turns=2` versus 3** only as an opt-in experiment with current retry/fallback protection, timeouts and complete-export verification.
 3. Add duration metrics for **actual inter-page sleeping** and **final JSON assembly**, to explain currently unattributed runtime.
 4. Prefer local, privacy-preserving equality checks of **message IDs and canonicalized contents** between the two complete exports before designating a faster setting as a new default.
 
@@ -144,7 +144,7 @@ The 2-turn run with 250-ms pacing happened to finish faster than the 100-ms run,
 
 ### Local full-message comparison
 
-The user independently ran the offline ZIP comparator on **Fast vs Pacing** and **Fast vs Experimental**. Both returned \`verdict: "identical"\` for **5,329 records**: no duplicate, missing or extra IDs; **zero content differences** between matching IDs; and **identical message order**. The comparison checks canonicalized full message objects, excluding variable export timestamps and page-layout metadata.
+The user independently ran the offline ZIP comparator on **Fast vs Pacing** and **Fast vs Experimental**. Both returned `verdict: "identical"` for **5,329 records**: no duplicate, missing or extra IDs; **zero content differences** between matching IDs; and **identical message order**. The comparison checks canonicalized full message objects, excluding variable export timestamps and page-layout metadata.
 
 These results establish integrity for that particular conversation and parameter choices, **not for every possible conversation**. The private conversation ZIPs were never committed.
 
@@ -154,6 +154,6 @@ The browser UI defaults to **3 turns / 100 ms**. Users can enter **1–1000 turn
 
 Higher turn values are an input capability, not proven optimizations. The existing sequential cursor validation, retry, downgrade to one turn on repeated temporary errors, cancellation and resume protections remain in place.
 
-The completion message now rounds the active runtime to **whole seconds** (e.g. \`2m 23s\`), while \`summary.active_run_ms\` retains millisecond precision. The progress message no longer includes "checking for older pages", which had merely described ordinary backward pagination.
+The completion message now rounds the active runtime to **whole seconds** (e.g. `2m 23s`), while `summary.active_run_ms` retains millisecond precision. The progress message no longer includes "checking for older pages", which had merely described ordinary backward pagination.
 
 There were no additional repeated multi-chat benchmarks after the three-mode content-equality verification; do not extrapolate these individual results into a general performance guarantee.
