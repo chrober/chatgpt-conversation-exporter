@@ -2,12 +2,12 @@
 
 Ein eigenständiges **Greasemonkey-/Tampermonkey-Userscript** zum lokalen JSON-Export **einer einzelnen, aktuell geöffneten Original-ChatGPT-Unterhaltung**. Kein Gesamtexport des Kontos und kein automatischer Export bei jedem Seitenaufruf.
 
-> **Status: Entwicklungsfassung 0.2.0 auf Feature-Branch.** Die zugrundeliegende Browser-Konsolen-Version wurde praktisch bestätigt. Die Tampermonkey-Version wurde unter Firefox praktisch erprobt. Die kompakte Toolbar und das explizite Speichern der Einstellungen benötigen noch einen Firefox-/Tampermonkey-Smoke-Test.
+> **Status: Entwicklungsfassung 0.2.1 auf Feature-Branch.** Die zugrundeliegende Browser-Konsolen-Version wurde praktisch bestätigt. Die Tampermonkey-Version wurde unter Firefox praktisch erprobt. Das neue transparente, automatisch farbangepasste SVG-Zahnrad benötigt noch eine Firefox-/Tampermonkey-Sichtprüfung.
 
 ## Installation und Bedienung
 
 1. Für Firefox **Tampermonkey** (oder Greasemonkey 4.11+) installieren.
-2. Die Datei [`userscripts/chatgpt-conversation-export.user.js`](userscripts/chatgpt-conversation-export.user.js) aus diesem Branch installieren. [Direktlink zur Raw-Datei](https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/refs/heads/feat/greasemonkey-single-conversation-export/userscripts/chatgpt-conversation-export.user.js). **Version 0.2.0:** Eine bereits installierte ältere Version aktualisieren oder ersetzen, nicht zusätzlich als zweites aktives Script installieren.
+2. Die Datei [`userscripts/chatgpt-conversation-export.user.js`](userscripts/chatgpt-conversation-export.user.js) aus diesem Branch installieren. [Direktlink zur Raw-Datei](https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/refs/heads/feat/greasemonkey-single-conversation-export/userscripts/chatgpt-conversation-export.user.js). **Version 0.2.1:** Eine bereits installierte ältere Version aktualisieren oder ersetzen, nicht zusätzlich als zweites aktives Script installieren.
 3. Auf `https://chatgpt.com` anmelden und **einen Original-Chat** öffnen: `/c/<uuid>` oder `/g/.../c/<uuid>`. Nach Installation/Update den Chat-Tab **neu laden**, um das neue Script auszuführen.
 4. Unten rechts auf **„Export chat as JSON“** klicken. Der Button ist bewusst kompakt; das **Zahnrad ⚙ unmittelbar rechts** öffnet **Export performance**. Dort gibt es ausschließlich die beiden Zahlenfelder **Turns** (Anzahl logischer Gesprächs-Turns pro API-Abfrage) und **Delay** (Pause zwischen paginierten Abfragen in Millisekunden). Standardwerte: **3 Turns / 100 ms**. Änderungen gelten für den nächsten Export und zunächst nur für die aktuelle Tab-/Browser-Sitzung. **Save** speichert sie dauerhaft; **Load defaults** lädt 3/100 zunächst nur für die Sitzung, dauerhaft erst nach **Save**. Alternativ bietet der Userscript-Manager den Menüpunkt **„Export current chat as JSON“**, sofern unterstützt.
 5. Das Statusfenster oberhalb des Export-Buttons zeigt **„API pages“** und **„message records“** an. **Cancel** unterbricht den Abruf, **Export chat as JSON** setzt ihn im selben Tab fort. **Close schließt ausschließlich das Statusfenster – nicht den laufenden Export.** Es bleibt auch bei späteren Fortschrittsmeldungen geschlossen; der Activity-Indicator mit drei animierten Punkten (**Dots**) im Hauptbutton zeigt weiterhin die Aktivität an. Während eines laufenden Exports öffnet ein Klick auf **Export chat as JSON** das Statusfenster erneut, ohne einen zweiten Export zu starten; **Cancel** ist dabei weiterhin aktiv. Während des Exports erscheint ausschließlich **Cancel**; nach Erfolg, Fehler oder Abbruch wird dieser Button ausgeblendet und an seiner Stelle **Save performance report** angezeigt. **Close** bleibt durchgehend sichtbar.
@@ -29,9 +29,9 @@ Dabei werden **vollständige Nachrichtenobjekte**, Nachrichten-IDs und deren Rei
 
 Exitcodes: `0` = identisch, `1` = Unterschied, `2` = ungültige Datei/Fehler. Bei abweichenden Nachrichteninhalten lohnt sich eine genaue Prüfung, ob sich die Unterhaltung zwischen den Exporten geändert hat.
 
-## Performance-Einstellungen in Version 0.2.0
+## Performance-Einstellungen in Version 0.2.1
 
-Das kleine **Zahnrad ⚙ unmittelbar rechts neben dem Export-Button** öffnet ein kompaktes Fenster mit genau zwei Einstellungen:
+Das **transparente SVG-Zahnrad direkt rechts neben dem Export-Button** öffnet ein kompaktes Fenster mit genau zwei Einstellungen. Es hat weder Hintergrund noch Rand oder Schatten. Die Vordergrundfarbe übernimmt es über die aktuellen ChatGPT-CSS-Textfarben (`--text-primary`, ersatzweise `--token-text-primary` oder die geerbte Textfarbe), sodass es mit hellem/dunklem Design mitwechselt. Die grafische Form hat keine Speichen und wird unabhängig von Emoji-Schriftarten dargestellt:
 
 | Feld | Bedeutung | Standard | Zulässige Werte |
 | --- | --- | ---: | ---: |
