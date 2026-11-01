@@ -1256,17 +1256,17 @@ test("export completion displays cumulative active duration and both uncompresse
     await ui.settle();
     const panel = ui.visiblePanel();
     assert.ok(panel);
-    assert.equal(panel.status.textContent,
+    assert.equal(panel.children[1].textContent,
         "Export complete – JSON download started.");
-    assert.match(panel.progress.textContent,
+    assert.match(panel.children[2].textContent,
         /1 API pages, 1 unique message records;/);
-    assert.match(panel.progress.textContent,
+    assert.match(panel.children[2].textContent,
         /Duration: 2m 5\.4s \(active\)/);
-    assert.match(panel.progress.textContent,
+    assert.match(panel.children[2].textContent,
         /JSON uncompressed: \d+\.\d{2} MiB;/);
-    assert.match(panel.progress.textContent,
+    assert.match(panel.children[2].textContent,
         /JSON \d+\.\d{2} MiB/);
-    assert.match(panel.progress.textContent, /\.json/);
+    assert.match(panel.children[2].textContent, /\.json/);
 });
 
 test("profiler completion duration includes resumed active runs but excludes paused time", () => {
