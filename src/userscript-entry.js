@@ -28,8 +28,7 @@
         state.launcher.setAttribute("aria-busy", String(running));
     }
 
-    // The button already used the native disabled attribute; style it too so
-    // the completed (or cancelled) state is visually unmistakable.
+    // Keep native disabled semantics while an export is being cancelled.
     function setCancelEnabled(button, enabled) {
         button.disabled = !enabled;
         button.setAttribute("aria-disabled", String(!enabled));
@@ -133,6 +132,7 @@
         setCancelEnabled(panel.cancel, canCancel);
         panel.cancel.hidden = !running;
         panel.cancel.style.display = running ? "" : "none";
+        panel.cancel.setAttribute("aria-hidden", String(!running));
 
         const canSave = state.exportSettled && Boolean(state.profiler);
         panel.saveProfile.hidden = !canSave;
@@ -213,12 +213,14 @@
             return;
         }
 
-        // All panel openings require an explicit user action.
-        showPanel();
+        // First establish the new operation state, then render the panel.
+        // Showing the old completed panel before setting state.controller
+        // could briefly expose stale (greyed-out) controls on re-export.
         let current;
         try {
             current = parseConversationUrl(currentUrl());
         } catch (error) {
+            showPanel();
             report("No original ChatGPT conversation is open.", error.message);
             return;
         }
@@ -230,6 +232,8 @@
             state.profiler = profiler;
             state.session = createExportSession({
                 sourceUrl: current.sourceUrl,
+                numTurns: 2,
+                requestDelayMs: 100,
                 fetchImpl: profiler.instrumentFetch(
                     (...args) => fetch(...args),
                     () => state.session?.snapshot().pages + 1 || 1
@@ -238,9 +242,8 @@
         }
 
         const session = state.session;
-        state.exportSettled = false;
-        if (state.panel?.root?.isConnected) updatePanelActions(state.panel);
         state.controller = new AbortController();
+        state.exportSettled = false;
         updateLauncherActivity();
         const signal = state.controller.signal;
         updatePanelActions(showPanel());
