@@ -6,6 +6,7 @@ const path = require("node:path");
 const root = path.resolve(__dirname, "..");
 const core = fs.readFileSync(path.join(root, "src/exporter-core.js"), "utf8").trimEnd();
 const entry = fs.readFileSync(path.join(root, "src/userscript-entry.js"), "utf8").trimEnd();
+const profiling = fs.readFileSync(path.join(root, "src/profiling.js"), "utf8").trimEnd();
 const target = path.join(root, "userscripts/chatgpt-conversation-export.user.js");
 
 const metadata = [
