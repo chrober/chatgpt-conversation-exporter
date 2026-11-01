@@ -1,13 +1,13 @@
 # Installation, Bedienung und Firefox-Abnahme
 
-> Entwicklungsstand 0.2.0 (Tampermonkey + Greasemonkey). Die Version 0.1.1 wurde mit **Tampermonkey unter Firefox erfolgreich ausgeführt**. Die Speicherung der Performance-Einstellungen benötigt noch eine Firefox-/Tampermonkey-Abnahme.
+> Entwicklungsstand 0.2.1 (Tampermonkey + Greasemonkey). Die Version 0.1.1 wurde mit **Tampermonkey unter Firefox erfolgreich ausgeführt**. Die Speicherung der Performance-Einstellungen benötigt noch eine Firefox-/Tampermonkey-Abnahme.
 
 ## Vorbereitungen
 
 - Firefox mit **Tampermonkey** oder Greasemonkey **4.11+**. Das Script unterstützt `GM_registerMenuCommand` und `GM.registerMenuCommand` und bietet zusätzlich einen immer sichtbaren Export-Button.
 - Bei `https://chatgpt.com` angemeldet sein und Zugriff auf den **Original-Chat** haben.
 - Genügend freier RAM und Festplattenspeicher; lange Chats können mehrere Dutzend MiB JSON erzeugen.
-- Das GitHub-Repository ist **öffentlich**. [V0.2.0 direkt aus dem Feature-Branch installieren](https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/refs/heads/feat/greasemonkey-single-conversation-export/userscripts/chatgpt-conversation-export.user.js). Falls Firefox keine Installation anbietet, den Raw-Inhalt in den Userscript-Editor einfügen. Eine vorhandene V0.1.0-/V0.1.1-Installation auf V0.2.0 aktualisieren oder ersetzen. Es gibt keine externen Bibliotheken.
+- Das GitHub-Repository ist **öffentlich**. [V0.2.1 direkt aus dem Feature-Branch installieren](https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/refs/heads/feat/greasemonkey-single-conversation-export/userscripts/chatgpt-conversation-export.user.js). Falls Firefox keine Installation anbietet, den Raw-Inhalt in den Userscript-Editor einfügen. Eine vorhandene V0.1.0-/V0.1.1-Installation auf V0.2.1 aktualisieren oder ersetzen. Es gibt keine externen Bibliotheken.
 
 ## Bedienung
 
@@ -61,13 +61,13 @@ Die CLI entpackt die eine JSON-Datei aus dem ZIP (CRC32-Prüfung), vergleicht vo
 - [ ] Keine Chat- oder Authentifizierungsdaten werden an andere Origins gesendet.
 - [ ] Kein privates JSON, kein Zugriffstoken in Git oder CI-Test-Logs.
 
-**Browserstatus:** Tampermonkey-Version 0.1.1 ist vom Anwender erfolgreich getestet. Der neue 0.2.0-Build mit Dots-Indikator muss noch überprüft werden. Automatisierte Tests können reale Firefox-Sandbox-, Layout- und Downloadprobleme nicht vollständig ausschließen.
+**Browserstatus:** Tampermonkey-Version 0.1.1 ist vom Anwender erfolgreich getestet. Der neue 0.2.1-Build mit Dots-Indikator muss noch überprüft werden. Automatisierte Tests können reale Firefox-Sandbox-, Layout- und Downloadprobleme nicht vollständig ausschließen.
 
 ## Fehlerdiagnose
 
 | Beobachtung | Maßnahme |
 | --- | --- |
-| Menüpunkt fehlt | Der Pfeil neben dem installierten Script in Tampermonkey zeigt nur Verwaltungsaktionen. **ChatGPT-Tab neu laden und unten rechts den Export-Button verwenden.** Scriptversion 0.2.0 sowie Grants `GM_registerMenuCommand` / `GM.registerMenuCommand` prüfen. |
+| Menüpunkt fehlt | Der Pfeil neben dem installierten Script in Tampermonkey zeigt nur Verwaltungsaktionen. **ChatGPT-Tab neu laden und unten rechts den Export-Button verwenden.** Scriptversion 0.2.1 sowie Grants `GM_registerMenuCommand` / `GM.registerMenuCommand` prüfen. |
 | `HTTP 401/403` | Angemeldete Sitzung und Sandbox-Zugriff prüfen; keine Token in Tickets posten. |
 | `HTTP 500 Request timeout` | Die Kernlogik nutzt direkte, kleine Paginierungsabfragen und wiederholt temporäre Fehler. |
 | `Paginierungsstatus fehlt`, leere Seite, Cursor wiederholt | API-Schema oder Daten verändert: bewusst **kein** Teil-Export; Diagnose ohne vertrauliche Daten erstellen. |
@@ -80,7 +80,7 @@ Die CLI entpackt die eine JSON-Datei aus dem ZIP (CRC32-Prüfung), vergleicht vo
 Das Userscript setzt bis zur ersten stabilen Version **keine** `@updateURL`/`@downloadURL`. Das Repository ist jetzt öffentlich, aber die Entwicklungsfassung wird noch direkt vom Feature-Branch installiert.
 
 
-## Export performance: Einstellungen und Speicherung (v0.2.0)
+## Export performance: Einstellungen und Speicherung (v0.2.1)
 
 - **Turns:** Wie viele logische Gesprächs-Turns die API je Paginierungsabfrage liefern soll. Ganzzahlige Eingabe von **1 bis 1000**, Default **3**. Ein größerer Wert kann weniger Abfragen benötigen, erhöht aber potenziell Größe und Laufzeit einzelner Antworten. Höhere Werte als 3 sind noch nicht durch manuelle Benchmarks abgesichert.
 - **Delay:** Pause zwischen zwei API-Seiten in Millisekunden. Ganzzahlige Eingabe von **0 bis 60000**, Default **100 ms**. Zu niedrige Werte können Rate-Limits begünstigen.
@@ -93,7 +93,7 @@ Aus Version 0.1.12 vorhandene gespeicherte Einstellungen werden beim Update auto
 
 ### Manuelle Abnahme
 
-- [ ] v0.2.0 installieren, Tab neu laden: kleiner Export-Button links, **Zahnrad direkt rechts**, Dots beim Export.
+- [ ] v0.2.1 installieren, Tab neu laden: kleiner Export-Button links, **Zahnrad direkt rechts**, Dots beim Export.
 - [ ] Zahnrad anklicken: **nur** die Eingaben Turns und Delay, keine Presets. Default 3 / 100.
 - [ ] Turns auf **5** und Delay auf **200** setzen, **ohne Save** neu laden: in derselben Tab-Sitzung weiterhin 5 / 200.
 - [ ] Neuen Tab mit ChatGPT öffnen: **ohne Save** weiterhin die zuletzt **dauerhaft gespeicherten** Werte bzw. Defaults, nicht die Änderungen des ursprünglichen Tabs.
@@ -103,3 +103,11 @@ Aus Version 0.1.12 vorhandene gespeicherte Einstellungen werden beim Update auto
 - [ ] Turns 0, Delay −1 und nichtganzzahlige Werte werden nicht übernommen; Turns 4 oder 10 sind zulässig.
 - [ ] Während eines aktiven Exports Settings-Eingaben und beide Aktionen gesperrt; nach Abschluss wieder freigegeben. **Cancel/Close/Save performance report** unverändert.
 
+
+## Theme-kompatibles Zahnrad (v0.2.1)
+
+Der Zahnrad-Auslöser ist weiterhin ein **semantisches, per Tastatur bedienbares `button`-Element**, sieht aber nicht mehr wie eine Schaltfläche aus: **kein Hintergrund, kein Rand, kein Schatten**. Es enthält eine eigens gezeichnete einfarbige SVG-Zahnradform anstelle des plattformabhängigen Unicode-Zeichens ⚙, das teilweise wie ein Steuerrad aussieht.
+
+Das SVG zeichnet mit `currentColor`; die Toolbar übernimmt die dynamische ChatGPT-Textfarbe über `--text-primary`, alternativ `--token-text-primary` und zuletzt die geerbte Textfarbe. Es ist damit keine feste Hintergrundfarbe notwendig. Beim Umschalten zwischen Light-/Dark-Theme passt sich die Vordergrundfarbe ohne Polling automatisch an. Der Tastaturfokus bleibt über `:focus-visible` erkennbar.
+
+Abnahme: (1) Zahnrad ohne farbige Buttonfläche im hellen und dunklen ChatGPT-Theme sichtbar, (2) keine Schiffsradspeichen/Emoji-Darstellung, (3) Maus und Tab+Enter/Space öffnen die Einstellungen, (4) der Dots-Indikator ist unverändert.
