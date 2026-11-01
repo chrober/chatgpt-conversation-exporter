@@ -7,7 +7,8 @@ Ein dediziertes Greasemonkey-/Tampermonkey-Userscript ruft genau den **aktuell g
 ## Komponenten
 
 - `src/exporter-core.js`: URL-/ID-Prüfung, Sitzungsheader, kleine sequentielle Seitenabfragen, Retries, Validierung, In-Memory-Fortsetzung, Zusammenführung und Audit. Ohne Browser-UI testbar.
-- `src/userscript-entry.js`: `GM_registerMenuCommand` für Tampermonkey bzw. `GM.registerMenuCommand` für Greasemonkey, zusätzlich ein fester in-Page-Startbutton als universeller Fallback, Browser-Kontextprüfung im Klickmoment, Statusfenster, Abbruch über `AbortController`, Blob-/Browser-Download.
+- `src/profiling.js`: zeitbasierte Messung von Sitzungs-/Nachrichten-HTTP-Antworten, JSON-Parsing, Seiten-/Retry-Statistik, Export-Serialisierung und separat herunterladbarem redigiertem Diagnosebericht. Keine Rohdaten oder Identifikatoren.
+- `src/userscript-entry.js`: `GM_registerMenuCommand` für Tampermonkey bzw. `GM.registerMenuCommand` für Greasemonkey, zusätzlich ein fester in-Page-Startbutton **unten rechts** und ein darüber platziertes Statusfenster (englische Meldungen), Browser-Kontextprüfung im Klickmoment, Statusfenster, Abbruch über `AbortController`, Blob-/Browser-Download.
 - `scripts/build-userscript.js`: deterministische Zusammenführung der Quellen mit Userscript-Metadaten; keine Runtime-CDNs, keine `@require`-Abhängigkeiten.
 - `userscripts/chatgpt-conversation-export.user.js`: **installierbares, generiertes Artefakt**, nicht direkt editieren.
 - `tests/exporter.test.js`: simulierte API-Antworten, keine realen Chat- oder Sitzungsdaten.
@@ -25,6 +26,22 @@ flowchart TD
     D -->|Fehler| I[Retry oder Unterbrechung]
     I -->|erneuter Menüaufruf| D
 ```
+
+## Bedeutung der API-Seiten
+
+**API pages** sind paginierte Antworten des internen Nachrichten-Endpunkts, **keine** Browserseiten, Chat-Turns oder einzelnen Nachrichten. Eine API-Seite kann sehr viele `message records` enthalten. Die Anzeige verwendet diese beiden Begriffe bewusst getrennt.
+
+## Performance-Diagnose
+
+Das Userscript sammelt minimale In-Memory-Messwerte. Der Bericht wird **nicht automatisch gespeichert**, sondern nur über **Save performance report**. Der JSON-Bericht `chatgpt-export-performance-<timestamp>.json` enthält:
+
+- `requests`: laufende Nummer der API-Seite, Versuch, HTTP-Status, Header-Wartezeit (`fetch_ms`), Body-/JSON-Parsing-Dauer (`parse_ms`) und gegebenenfalls gemeldete `Content-Length`;
+- `pages`: Datensatzanzahl, kumulierte Datensätze, Anzahl HTTP-Versuche und aufsummierte Zeiten je erfolgreich validierter Seite;
+- `summary`: Seiten-/Datensatzzahlen, Retries, Statusverteilung, Summen, P50/P95 der Header-Wartezeit, aktive Laufzeit über mehrere Versuche und – bei erfolgreichem Abschluss – lokale JSON-Serialisierungsdauer und Dateigröße.
+
+**Nicht enthalten**: Chat-URL, Conversation-ID, Cursor, Sitzungs-/Authorization-Token, Request-Header, Nachrichteninhalte oder IDs. Auch die Diagnose kann anhand von Zeitstempeln und Nutzungsmustern Rückschlüsse erlauben; vor Veröffentlichung prüfen.
+
+`fetch_ms` misst die Zeit bis zu HTTP-Response-Headern und ist **nicht** identisch mit der vollständigen Netzwerk-/Backend-Dauer. `parse_ms` umfasst das Lesen/Parsen der Antwort. P50/P95 sind Beobachtungswerte ohne statistische Garantie. `active_run_ms` enthält Wartezeiten, aber nicht die Zeit zwischen einem Abbruch und einer manuellen Fortsetzung. Ohne Network-DevTools/Server-Metriken lassen sich z. B. DNS, TLS und serverseitige Berechnungen nicht einzeln isolieren.
 
 ## Bewährtes API-Verhalten
 
@@ -67,10 +84,10 @@ Das JSON-Beispiel ist eine **Formillustration**, keine realistische vollständig
 - Kein Export ohne expliziten Klick auf Menüeintrag **oder** Export-Button. Der in-Page-Button ist auf `chatgpt.com` auch außerhalb einer Unterhaltung sichtbar; vor dem Start validiert der Exporter die Original-Chat-URL.
 - Kein externer Code oder Dienst; JSON als lokaler Blob-Download.
 - Die exportierten Daten können sensible Inhalte enthalten. Keine echten Exporte in Git, Issues oder CI legen. Alle Tests verwenden erfundene IDs und Nachrichten.
-- Da der Browser-Download aus der Greasemonkey-Sandbox noch nicht real validiert wurde, bleibt dies eine **Entwicklungsfassung**.
+- Der Tampermonkey-Export unter Firefox ist für V0.1.1 praktisch bestätigt. Die Profiling- und Layoutänderungen von V0.1.2 sind noch nicht im Browser abgenommen.
 
 ## Bisherige Evidenz
 
 Der **Konsolen-V2-Exporter** (nicht die Greasemonkey-Fassung) wurde am 31.10.2026 für einen sehr langen technischen Chat zweimal erfolgreich verwendet: **64 Seiten, 4.970 eindeutige Datensätze, 0 Duplikate, 55,35 MiB**, Paginierung beendet. Der nicht-paginierte Conversation-Endpunkt scheiterte mit `HTTP 500 {"detail":"Request timeout"}`. Die automatische URL-Erkennung wurde separat im Browser bestätigt.
 
-Eine echte Firefox-/Greasemonkey-Abnahme ist als nächster Schritt erforderlich.
+Die abschließende Browser-Abnahme der neuen Version 0.1.2 ist der nächste Schritt.
