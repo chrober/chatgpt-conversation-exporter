@@ -44,6 +44,7 @@
         delay: DEFAULT_SETTINGS.delay,
         includeAttachments: false,
         attachmentInput: null,
+        attachmentIndicator: null,
         settingsLoaded: false,
         settingsError: "",
         settingsHint: "",
@@ -85,7 +86,18 @@
         if (!state.modeTurnInput || !state.modeDelayInput) return;
         state.modeTurnInput.value = String(state.numTurns);
         state.modeDelayInput.value = String(state.delay);
-        if (state.attachmentInput) state.attachmentInput.checked = state.includeAttachments;
+        if (state.attachmentInput) {
+            const toggle = state.attachmentInput;
+            toggle.setAttribute("aria-checked", String(state.includeAttachments));
+            toggle.style.backgroundColor = state.includeAttachments ?
+                "#2563eb" : "#354152";
+            toggle.style.borderColor = state.includeAttachments ?
+                "#60a5fa" : "#8c99a8";
+            if (state.attachmentIndicator) {
+                state.attachmentIndicator.style.visibility =
+                    state.includeAttachments ? "visible" : "hidden";
+            }
+        }
         const disabled = !state.settingsLoaded || Boolean(state.controller);
         state.modeTurnInput.disabled = disabled;
         state.modeDelayInput.disabled = disabled;
@@ -222,6 +234,7 @@
         state.modeTurnInput = null;
         state.modeDelayInput = null;
         state.attachmentInput = null;
+        state.attachmentIndicator = null;
         state.modeNote = null;
         state.saveSettingsButton = null;
         state.resetSettingsButton = null;
@@ -290,34 +303,79 @@
             state.delay, 0, MAX_DELAY_MS);
         root.appendChild(fields);
 
-        const attachmentsLabel = document.createElement("label");
-        Object.assign(attachmentsLabel.style, {
-            display: "flex", gap: "8px", alignItems: "center", marginTop: "12px"
+        // ChatGPT globally resets native checkbox appearance in some themes.
+        // Draw our own visible square rather than relying on host form CSS.
+        // A real button with role=checkbox supports Tab + Space/Enter.
+        const attachmentsRow = document.createElement("div");
+        Object.assign(attachmentsRow.style, {
+            display: "flex", gap: "8px", alignItems: "center",
+            marginTop: "12px"
         });
-        const attachmentCheckbox = document.createElement("input");
+        const attachmentCheckbox = document.createElement("button");
         attachmentCheckbox.id = "chatgpt-conversation-export-include-attachments";
-        attachmentCheckbox.type = "checkbox";
-        attachmentCheckbox.checked = state.includeAttachments;
-        attachmentCheckbox.setAttribute("aria-label", "Include attachments (experimental)");
-        attachmentCheckbox.addEventListener("change", () => {
+        attachmentCheckbox.type = "button";
+        attachmentCheckbox.setAttribute("role", "checkbox");
+        attachmentCheckbox.setAttribute(
+            "aria-label", "Include attachments (experimental)"
+        );
+        attachmentCheckbox.setAttribute("aria-checked", "false");
+        Object.assign(attachmentCheckbox.style, {
+            // Explicit visual box wins over native input appearance resets.
+            display: "inline-flex", boxSizing: "border-box",
+            position: "relative", flex: "0 0 18px",
+            width: "18px", height: "18px",
+            minWidth: "18px", minHeight: "18px",
+            padding: "0", margin: "0",
+            alignItems: "center", justifyContent: "center",
+            border: "1px solid #8c99a8",
+            borderRadius: "4px", backgroundColor: "#354152",
+            appearance: "none", boxShadow: "none",
+            color: "#fff", cursor: "pointer"
+        });
+        const check = document.createElementNS(
+            "http://www.w3.org/2000/svg", "svg"
+        );
+        check.setAttribute("viewBox", "0 0 18 18");
+        check.setAttribute("width", "15");
+        check.setAttribute("height", "15");
+        check.setAttribute("fill", "none");
+        check.setAttribute("stroke", "#fff");
+        check.setAttribute("stroke-width", "2.2");
+        check.setAttribute("stroke-linecap", "round");
+        check.setAttribute("stroke-linejoin", "round");
+        check.setAttribute("aria-hidden", "true");
+        const checkPath = document.createElementNS(
+            "http://www.w3.org/2000/svg", "path"
+        );
+        checkPath.setAttribute("d", "M 3.5 9 L 7.5 13 L 14.5 5");
+        check.appendChild(checkPath);
+        attachmentCheckbox.appendChild(check);
+
+        function toggleAttachments() {
             if (state.controller || !state.settingsLoaded) {
                 updateSettingsInputs();
                 return;
             }
-            state.includeAttachments = Boolean(attachmentCheckbox.checked);
+            state.includeAttachments = !state.includeAttachments;
             storeSessionSettings({
                 numTurns: state.numTurns, delay: state.delay,
                 includeAttachments: state.includeAttachments
             });
-            state.settingsHint = "Current tab updated; click Save for permanent settings.";
+            state.settingsHint =
+                "Current tab updated; click Save for permanent settings.";
             state.settingsError = "";
-            updateSettingsNote();
-        });
-        attachmentsLabel.appendChild(attachmentCheckbox);
+            updateSettingsInputs();
+        }
+        attachmentCheckbox.addEventListener("click", toggleAttachments);
         const attachmentText = document.createElement("span");
         attachmentText.textContent = "Include attachments (experimental)";
-        attachmentsLabel.appendChild(attachmentText);
-        root.appendChild(attachmentsLabel);
+        Object.assign(attachmentText.style, {
+            cursor: "pointer", userSelect: "none"
+        });
+        attachmentText.addEventListener("click", toggleAttachments);
+        attachmentsRow.appendChild(attachmentCheckbox);
+        attachmentsRow.appendChild(attachmentText);
+        root.appendChild(attachmentsRow);
         const attachmentInfo = document.createElement("div");
         attachmentInfo.textContent = "Download available chat files into ZIP; missing files are listed in a manifest.";
         Object.assign(attachmentInfo.style, {
@@ -364,6 +422,7 @@
         state.modeTurnInput = turns;
         state.modeDelayInput = delay;
         state.attachmentInput = attachmentCheckbox;
+        state.attachmentIndicator = check;
         state.modeNote = note;
         state.saveSettingsButton = save;
         state.resetSettingsButton = reset;
