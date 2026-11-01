@@ -200,6 +200,7 @@ test("download bundle is self-contained and command does not auto-export", () =>
         __dirname, "../userscripts/chatgpt-conversation-export.user.js"
     ), "utf8");
     assert.match(code, /@grant\s+GM\.registerMenuCommand/);
+    assert.match(code, /@grant\s+GM_registerMenuCommand/);
     assert.doesNotMatch(code, /@require/);
     let menu;
     const context = {
@@ -211,4 +212,48 @@ test("download bundle is self-contained and command does not auto-export", () =>
     assert.match(menu.label, /JSON exportieren/);
     assert.equal(typeof menu.callback, "function");
     // No DOM, fetch or download activity before the explicit menu action.
+});
+
+test("Tampermonkey legacy menu API is registered without auto-export", () => {
+    const code = fs.readFileSync(path.join(
+        __dirname, "../userscripts/chatgpt-conversation-export.user.js"
+    ), "utf8");
+    let menu;
+    const context = {
+        GM_registerMenuCommand: (label, callback) => {
+            menu = { label, callback };
+        }
+    };
+    vm.runInNewContext(code, context);
+    assert.equal(menu.label, "Aktuellen Chat als JSON exportieren");
+    assert.equal(typeof menu.callback, "function");
+});
+
+test("the in-page launcher exists even without a userscript menu API", () => {
+    const code = fs.readFileSync(path.join(
+        __dirname, "../userscripts/chatgpt-conversation-export.user.js"
+    ), "utf8");
+    let launcher;
+    let exported = false;
+    const document = {
+        body: { appendChild(node) { launcher = node; } },
+        getElementById: () => null,
+        createElement: () => ({
+            style: {},
+            setAttribute() {},
+            addEventListener(event, callback) {
+                assert.equal(event, "click");
+                this.onClick = callback;
+            }
+        })
+    };
+    vm.runInNewContext(code, {
+        document,
+        console: { info() {}, warn() {} },
+        fetch: () => { exported = true; throw Error("unexpected fetch"); }
+    });
+    assert.equal(launcher.id, "chatgpt-conversation-export-launcher");
+    assert.equal(launcher.textContent, "Chat als JSON exportieren");
+    assert.equal(typeof launcher.onClick, "function");
+    assert.equal(exported, false);
 });
