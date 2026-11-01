@@ -3,49 +3,54 @@
 // Greasemonkey/Tampermonkey UI adapter. Core embedded by build-userscript.js.
 // Do not run an export automatically when ChatGPT loads.
 (function installExportCommand() {
-    const STORAGE_KEY = "chatgpt-conversation-exporter.settings.v1";
-    const DEFAULT_SETTINGS = Object.freeze({
-        mode: "experimental", customNumTurns: 3, customDelayMs: 100
-    });
-    const BENCHMARK_MODES = Object.freeze({
-        stable: { label: "Reference — 1 turn / 250 ms", numTurns: 1, delay: 250 },
-        pace: { label: "Pacing test — 2 turns / 250 ms", numTurns: 2, delay: 250 },
-        fast: { label: "Previous Fast — 2 turns / 100 ms", numTurns: 2, delay: 100 },
-        experimental: { label: "Recommended — 3 turns / 100 ms", numTurns: 3, delay: 100 },
-        custom: { label: "Custom settings", numTurns: null, delay: null }
-    });
+    const SETTINGS_KEY = "chatgpt-conversation-exporter.settings.v2";
+    const LEGACY_SETTINGS_KEY = "chatgpt-conversation-exporter.settings.v1";
+    const SESSION_KEY = "chatgpt-conversation-exporter.session-settings.v2";
+    const DEFAULT_SETTINGS = Object.freeze({ numTurns: 3, delay: 100 });
+    const MAX_TURNS = 1000;
+    const MAX_DELAY_MS = 60000;
 
-    function validInt(value, min, max) {
-        return Number.isInteger(value) && value >= min && value <= max;
-    }
-
-    function readStoredSettings(value) {
-        if (!value || typeof value !== "object" ||
-            !Object.hasOwn(BENCHMARK_MODES, value.mode) ||
-            !validInt(value.customNumTurns, 1, 3) ||
-            !validInt(value.customDelayMs, 0, 2000)) {
-            return { ...DEFAULT_SETTINGS };
+    function validateSettings(raw) {
+        if (!raw || typeof raw !== "object" ||
+            !Number.isInteger(raw.numTurns) ||
+            raw.numTurns < 1 || raw.numTurns > MAX_TURNS ||
+            !Number.isInteger(raw.delay) ||
+            raw.delay < 0 || raw.delay > MAX_DELAY_MS) {
+            return null;
         }
-        return {
-            mode: value.mode,
-            customNumTurns: value.customNumTurns,
-            customDelayMs: value.customDelayMs
-        };
+        return { numTurns: raw.numTurns, delay: raw.delay };
     }
+
+    function migrateLegacySettings(raw) {
+        if (!raw || typeof raw !== "object") return null;
+        const preset = {
+            stable: { numTurns: 1, delay: 250 },
+            pace: { numTurns: 2, delay: 250 },
+            fast: { numTurns: 2, delay: 100 },
+            experimental: { numTurns: 3, delay: 100 }
+        };
+        if (raw.mode === "custom") {
+            return validateSettings({
+                numTurns: raw.customNumTurns, delay: raw.customDelayMs
+            });
+        }
+        return preset[raw.mode] || null;
+    }
+
     const state = {
         session: null,
         sessionMode: null,
-        mode: DEFAULT_SETTINGS.mode,
-        customNumTurns: DEFAULT_SETTINGS.customNumTurns,
-        customDelayMs: DEFAULT_SETTINGS.customDelayMs,
+        numTurns: DEFAULT_SETTINGS.numTurns,
+        delay: DEFAULT_SETTINGS.delay,
         settingsLoaded: false,
         settingsError: "",
+        settingsHint: "",
         modePanel: null,
-        modeSelect: null,
         modeTurnInput: null,
         modeDelayInput: null,
-        modeCustomFields: null,
         modeNote: null,
+        saveSettingsButton: null,
+        resetSettingsButton: null,
         controller: null,
         panel: null,
         profiler: null,
@@ -60,87 +65,137 @@
         return window.location.origin + window.location.pathname;
     }
 
-    function selectedConfiguration() {
-        if (state.mode === "custom") {
-            return { numTurns: state.customNumTurns, delay: state.customDelayMs };
-        }
-        return BENCHMARK_MODES[state.mode];
+    function selectedConfigurationKey() {
+        return state.numTurns + ":" + state.delay;
     }
 
-    function selectedConfigurationKey() {
-        const config = selectedConfiguration();
-        return state.mode + ":" + config.numTurns + ":" + config.delay;
+    function updateSettingsNote() {
+        if (!state.modeNote) return;
+        state.modeNote.textContent = state.settingsError ||
+            state.settingsHint ||
+            (state.settingsLoaded
+                ? "Changes apply to the next export in this tab. " +
+                  "Save keeps them after a browser restart."
+                : "Loading saved settings ...");
     }
 
     function updateSettingsInputs() {
-        const select = state.modeSelect;
-        if (!select) return;
-        select.value = state.mode;
-        select.disabled = !state.settingsLoaded || Boolean(state.controller);
-        const custom = state.mode === "custom";
-        if (state.modeTurnInput && state.modeDelayInput) {
-            const disabled = select.disabled;
-            state.modeTurnInput.disabled = disabled || !custom;
-            state.modeDelayInput.disabled = disabled || !custom;
-            if (state.modeCustomFields) {
-                state.modeCustomFields.style.display = custom ? "flex" : "none";
-            }
-            state.modeTurnInput.value = String(state.customNumTurns);
-            state.modeDelayInput.value = String(state.customDelayMs);
-        }
-        if (state.modeNote) {
-            state.modeNote.textContent = state.settingsError ||
-                (state.settingsLoaded
-                    ? "Settings are stored by your userscript manager. " +
-                      "Changing a mode starts a fresh API export on the next run."
-                    : "Loading saved settings ...");
+        if (!state.modeTurnInput || !state.modeDelayInput) return;
+        state.modeTurnInput.value = String(state.numTurns);
+        state.modeDelayInput.value = String(state.delay);
+        const disabled = !state.settingsLoaded || Boolean(state.controller);
+        state.modeTurnInput.disabled = disabled;
+        state.modeDelayInput.disabled = disabled;
+        state.saveSettingsButton.disabled = disabled;
+        state.resetSettingsButton.disabled = disabled;
+        updateSettingsNote();
+    }
+
+    function storeSessionSettings(settings) {
+        // sessionStorage survives a tab reload, but is separate from
+        // Tampermonkey/Greasemonkey's durable preferences.
+        try {
+            window.sessionStorage?.setItem(SESSION_KEY, JSON.stringify(settings));
+        } catch (error) {
+            // Restricted windows may have no sessionStorage; in-memory
+            // settings still apply until this page is closed.
+            console.warn("[ChatGPT Conversation Exporter] Session storage unavailable.", error);
         }
     }
 
-    let pendingSettingsWrite = Promise.resolve();
-    function persistSettings() {
-        const prefs = {
-            mode: state.mode,
-            customNumTurns: state.customNumTurns,
-            customDelayMs: state.customDelayMs
-        };
-        // Serialize asynchronous Greasemonkey writes so rapid changes cannot
-        // leave an older setting as the last persisted value.
-        pendingSettingsWrite = pendingSettingsWrite.catch(() => {}).then(async () => {
+    function applySettings(settings) {
+        state.numTurns = settings.numTurns;
+        state.delay = settings.delay;
+        storeSessionSettings(settings);
+    }
+
+    function readFields() {
+        const turns = state.modeTurnInput?.value?.trim();
+        const delay = state.modeDelayInput?.value?.trim();
+        if (!turns || !delay || !/^\d+$/.test(turns) ||
+            !/^\d+$/.test(delay)) return null;
+        return validateSettings({ numTurns: Number(turns), delay: Number(delay) });
+    }
+
+    function applyFields() {
+        if (!state.settingsLoaded || state.controller) {
+            updateSettingsInputs();
+            return false;
+        }
+        const settings = readFields();
+        if (!settings) {
+            state.settingsError =
+                "Use whole numbers: Turns 1–1000; Delay 0–60000 ms.";
+            state.settingsHint = "";
+            updateSettingsNote();
+            return false;
+        }
+        applySettings(settings);
+        state.settingsError = "";
+        state.settingsHint = "Current tab updated; click Save for permanent settings.";
+        updateSettingsNote();
+        return true;
+    }
+
+    let pendingSave = Promise.resolve();
+    function saveSettings() {
+        if (!applyFields()) return;
+        const settings = { numTurns: state.numTurns, delay: state.delay };
+        // Serialize Greasemonkey async writes to prevent older clicks from
+        // overwriting newer saved settings.
+        pendingSave = pendingSave.catch(() => {}).then(async () => {
             try {
                 if (typeof GM_setValue === "function") {
-                    await GM_setValue(STORAGE_KEY, prefs);
+                    await GM_setValue(SETTINGS_KEY, settings);
                 } else if (typeof GM !== "undefined" &&
                            typeof GM.setValue === "function") {
-                    await GM.setValue(STORAGE_KEY, prefs);
+                    await GM.setValue(SETTINGS_KEY, settings);
                 } else {
-                    throw new Error("Userscript persistent storage API unavailable.");
+                    throw new Error("Userscript storage API unavailable.");
                 }
                 state.settingsError = "";
+                state.settingsHint = "Saved permanently.";
             } catch (error) {
-                state.settingsError =
-                    "Could not save settings; they may reset on reload.";
+                state.settingsError = "Save failed; values remain session-only.";
+                state.settingsHint = "";
                 console.warn("[ChatGPT Conversation Exporter]", state.settingsError, error);
             }
-            updateSettingsInputs();
+            updateSettingsNote();
         });
-        return pendingSettingsWrite;
     }
 
     const settingsReady = (async () => {
         try {
-            let stored = null;
+            let saved = null;
             if (typeof GM_getValue === "function") {
-                stored = await GM_getValue(STORAGE_KEY, null);
+                saved = await GM_getValue(SETTINGS_KEY, null);
+                if (saved === null || saved === undefined) {
+                    saved = migrateLegacySettings(
+                        await GM_getValue(LEGACY_SETTINGS_KEY, null));
+                }
             } else if (typeof GM !== "undefined" &&
                        typeof GM.getValue === "function") {
-                stored = await GM.getValue(STORAGE_KEY, null);
+                saved = await GM.getValue(SETTINGS_KEY, null);
+                if (saved === null || saved === undefined) {
+                    saved = migrateLegacySettings(
+                        await GM.getValue(LEGACY_SETTINGS_KEY, null));
+                }
             }
-            if (stored !== null && stored !== undefined) {
-                const prefs = readStoredSettings(stored);
-                state.mode = prefs.mode;
-                state.customNumTurns = prefs.customNumTurns;
-                state.customDelayMs = prefs.customDelayMs;
+            const persisted = validateSettings(saved);
+            if (persisted) {
+                state.numTurns = persisted.numTurns;
+                state.delay = persisted.delay;
+            }
+            try {
+                const rawSession = window.sessionStorage?.getItem(SESSION_KEY);
+                const session = rawSession ?
+                    validateSettings(JSON.parse(rawSession)) : null;
+                if (session) {
+                    state.numTurns = session.numTurns;
+                    state.delay = session.delay;
+                }
+            } catch (error) {
+                console.warn("[ChatGPT Conversation Exporter] Could not load tab settings.", error);
             }
         } catch (error) {
             state.settingsError = "Could not load saved settings; using defaults.";
@@ -151,71 +206,45 @@
         }
     })();
 
+    function hideModePanel() {
+        if (state.modePanel?.isConnected) state.modePanel.remove();
+        state.modePanel = null;
+        state.modeTurnInput = null;
+        state.modeDelayInput = null;
+        state.modeNote = null;
+        state.saveSettingsButton = null;
+        state.resetSettingsButton = null;
+    }
+
     function toggleModePanel() {
         if (state.modePanel?.isConnected) {
-            state.modePanel.remove();
-            state.modePanel = null;
-            state.modeSelect = null;
-            state.modeTurnInput = null;
-            state.modeDelayInput = null;
-            state.modeCustomFields = null;
-            state.modeNote = null;
+            hideModePanel();
             return;
         }
         const root = document.createElement("aside");
         root.id = "chatgpt-conversation-export-mode-panel";
-        root.setAttribute("aria-label", "Export performance mode");
+        root.setAttribute("aria-label", "Export performance settings");
         Object.assign(root.style, {
-            position: "fixed", right: "18px", bottom: "68px",
+            position: "fixed", right: "18px", bottom: "62px",
             zIndex: "2147483647", background: "#17202b",
             color: "#f6f7f8", padding: "12px",
             border: "1px solid #46505a", borderRadius: "8px",
             boxShadow: "0 8px 30px rgba(0,0,0,.4)",
             font: "12px/1.5 system-ui, sans-serif",
-            maxWidth: "min(310px, calc(100vw - 36px))"
+            width: "min(300px, calc(100vw - 36px))"
         });
-        const label = document.createElement("label");
-        label.textContent = "Export performance mode";
-        label.setAttribute("for", "chatgpt-conversation-export-mode");
-        label.style.display = "block";
-        label.style.marginBottom = "6px";
-        root.appendChild(label);
-        const select = document.createElement("select");
-        select.id = "chatgpt-conversation-export-mode";
-        select.setAttribute("aria-label", "Export performance mode");
-        Object.assign(select.style, {
-            width: "100%", font: "inherit", padding: "6px",
-            background: "#354152", color: "#fff",
-            border: "1px solid #8c99a8", borderRadius: "5px"
-        });
-        for (const [key, mode] of Object.entries(BENCHMARK_MODES)) {
-            const option = document.createElement("option");
-            option.value = key;
-            option.textContent = mode.label;
-            select.appendChild(option);
-        }
-        select.value = state.mode;
-        select.addEventListener("change", () => {
-            if (state.controller || !state.settingsLoaded ||
-                !Object.hasOwn(BENCHMARK_MODES, select.value)) {
-                updateSettingsInputs();
-                return;
-            }
-            state.mode = select.value;
-            updateSettingsInputs();
-            void persistSettings();
-        });
-        root.appendChild(select);
+        const heading = document.createElement("div");
+        heading.textContent = "Export performance";
+        heading.style.fontWeight = "700";
+        heading.style.marginBottom = "8px";
+        root.appendChild(heading);
 
-        const customFields = document.createElement("div");
-        customFields.id = "chatgpt-conversation-export-custom-fields";
-        Object.assign(customFields.style, {
-            display: "none", gap: "8px", marginTop: "10px"
-        });
-        function addSetting(labelText, id, value, min, max, onChange) {
+        const fields = document.createElement("div");
+        Object.assign(fields.style, { display: "flex", gap: "8px" });
+        function addField(labelText, description, id, value, min, max) {
             const field = document.createElement("label");
             field.textContent = labelText;
-            Object.assign(field.style, { display: "block", flex: "1" });
+            Object.assign(field.style, { display: "block", flex: "1", minWidth: "0" });
             const input = document.createElement("input");
             input.id = id;
             input.type = "number";
@@ -230,64 +259,68 @@
                 background: "#354152", border: "1px solid #8c99a8",
                 borderRadius: "5px"
             });
-            input.addEventListener("change", onChange);
+            input.addEventListener("input", applyFields);
+            input.addEventListener("change", applyFields);
             field.appendChild(input);
-            customFields.appendChild(field);
+            const help = document.createElement("div");
+            help.textContent = description;
+            Object.assign(help.style, {
+                fontSize: "11px", color: "#c4cedb", marginTop: "4px"
+            });
+            field.appendChild(help);
+            fields.appendChild(field);
             return input;
         }
-        function commitCustom() {
-            if (state.controller || !state.settingsLoaded || state.mode !== "custom") {
-                updateSettingsInputs();
-                return;
-            }
-            // Reject fractional, out-of-range, negative and empty inputs.
-            const turns = Number(state.modeTurnInput.value);
-            const delay = Number(state.modeDelayInput.value);
-            if (!state.modeTurnInput.value.trim() ||
-                !state.modeDelayInput.value.trim() ||
-                !validInt(turns, 1, 3) || !validInt(delay, 0, 2000)) {
-                state.settingsError =
-                    "Invalid settings: turns 1–3; delay 0–2000 ms (whole numbers).";
-                updateSettingsInputs();
-                return;
-            }
-            state.customNumTurns = turns;
-            state.customDelayMs = delay;
-            state.settingsError = "";
-            updateSettingsInputs();
-            void persistSettings();
-        }
-        const turns = addSetting("Turns (1–3)",
+        const turns = addField("Turns", "Conversation turns per API request.",
             "chatgpt-conversation-export-custom-turns",
-            state.customNumTurns, 1, 3, commitCustom);
-        const delay = addSetting("Delay (0–2000 ms)",
+            state.numTurns, 1, MAX_TURNS);
+        const delay = addField("Delay (ms)", "Pause between API pages.",
             "chatgpt-conversation-export-custom-delay",
-            state.customDelayMs, 0, 2000, commitCustom);
-        root.appendChild(customFields);
+            state.delay, 0, MAX_DELAY_MS);
+        root.appendChild(fields);
+
+        const buttons = document.createElement("div");
+        Object.assign(buttons.style, {
+            display: "flex", gap: "8px", marginTop: "12px"
+        });
+        function addAction(label, onClick) {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.textContent = label;
+            Object.assign(button.style, {
+                padding: "5px 9px", border: "1px solid #8c99a8",
+                borderRadius: "5px", background: "#354152",
+                color: "#fff", cursor: "pointer", font: "inherit"
+            });
+            button.addEventListener("click", onClick);
+            buttons.appendChild(button);
+            return button;
+        }
+        const save = addAction("Save", saveSettings);
+        const reset = addAction("Load defaults", () => {
+            if (state.controller || !state.settingsLoaded) return;
+            applySettings(DEFAULT_SETTINGS);
+            state.settingsError = "";
+            state.settingsHint =
+                "Defaults loaded for this session; click Save to persist them.";
+            updateSettingsInputs();
+        });
+        root.appendChild(buttons);
 
         const note = document.createElement("div");
+        note.setAttribute("role", "status");
         Object.assign(note.style, {
             color: "#c4cedb", marginTop: "8px", maxWidth: "285px"
         });
         root.appendChild(note);
         document.body.appendChild(root);
         state.modePanel = root;
-        state.modeSelect = select;
         state.modeTurnInput = turns;
         state.modeDelayInput = delay;
-        state.modeCustomFields = customFields;
         state.modeNote = note;
+        state.saveSettingsButton = save;
+        state.resetSettingsButton = reset;
         updateSettingsInputs();
-    }
-
-    function hideModePanel() {
-        if (state.modePanel?.isConnected) state.modePanel.remove();
-        state.modePanel = null;
-        state.modeSelect = null;
-        state.modeTurnInput = null;
-        state.modeDelayInput = null;
-        state.modeCustomFields = null;
-        state.modeNote = null;
     }
 
     function updateLauncherActivity() {
@@ -510,7 +543,7 @@
             state.sessionMode !== selectedConfigurationKey()) {
             const profiler = createExportProfiler();
             state.profiler = profiler;
-            const mode = selectedConfiguration();
+            const mode = { numTurns: state.numTurns, delay: state.delay };
             state.sessionMode = selectedConfigurationKey();
             state.session = createExportSession({
                 sourceUrl: current.sourceUrl,
