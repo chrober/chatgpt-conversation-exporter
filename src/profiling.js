@@ -16,6 +16,9 @@ function createExportProfiler(options = {}) {
     let activeRunMs = 0;
     let serializationMs = null;
     let jsonBytes = null;
+    let archiveBytes = null;
+    let compressionMs = null;
+    let downloadFormat = null;
     let completed = false;
 
     const ms = value => Math.max(0, Math.round(value * 10) / 10);
@@ -103,6 +106,10 @@ function createExportProfiler(options = {}) {
     function noteDownload(metrics) {
         serializationMs = ms(metrics.serialization_ms);
         jsonBytes = metrics.json_bytes;
+        archiveBytes = metrics.archive_bytes ?? metrics.json_bytes;
+        compressionMs = metrics.compression_ms === undefined ?
+            null : ms(metrics.compression_ms);
+        downloadFormat = metrics.format ?? "json";
         completed = true;
     }
     function hasSamples() { return requests.length > 0 || pages.length > 0; }
@@ -127,7 +134,7 @@ function createExportProfiler(options = {}) {
         const recordCount = pages.at(-1)?.cumulative_records ?? 0;
         return {
             profile_format: "chatgpt-export-performance-v1",
-            userscript_version: "0.1.5",
+            userscript_version: "0.1.6",
             created_at: startedAt,
             reported_at: new Date().toISOString(),
             completed,
@@ -138,7 +145,8 @@ function createExportProfiler(options = {}) {
                 "parse_ms includes response body reading and JSON parsing.",
                 "HTTP Content-Length may refer to compressed transfer data and may be absent.",
                 "active_run_ms includes network, throttling, retries and processing, but excludes pauses between resumed runs.",
-                "Only completed API pages appear under pages. Failed attempts remain under requests."
+                "Only completed API pages appear under pages. Failed attempts remain under requests.",
+                "ZIP compression uses browser-native DEFLATE; archive_bytes measures the local ZIP output, not the original JSON size."
             ],
             summary: {
                 api_pages_completed: pages.length,
@@ -150,7 +158,12 @@ function createExportProfiler(options = {}) {
                 response_json_parse_ms: sumParse,
                 active_run_ms: ms(activeRunMs),
                 json_serialization_ms: serializationMs,
+                zip_compression_ms: compressionMs,
+                download_format: downloadFormat,
                 exported_json_bytes: jsonBytes,
+                archive_bytes: archiveBytes,
+                compression_ratio: jsonBytes && archiveBytes !== null ?
+                    ms(archiveBytes / jsonBytes) : null,
                 fetch_p50_ms: percentile(0.50),
                 fetch_p95_ms: percentile(0.95),
                 records_per_active_second: activeRunMs > 0 ?
