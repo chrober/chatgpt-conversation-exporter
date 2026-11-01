@@ -107,6 +107,12 @@ function createExportProfiler(options = {}) {
     }
 
     function runStarted() { return now(); }
+    function activeElapsedMs(started) {
+        // Keep the status message and the exported performance report on
+        // the same cumulative active-time basis. While a run is in progress,
+        // include its elapsed time without finalizing it or counting it twice.
+        return ms(activeRunMs + Math.max(0, now() - started));
+    }
     function runEnded(started) {
         activeRunMs += ms(now() - started);
     }
@@ -141,7 +147,7 @@ function createExportProfiler(options = {}) {
         const recordCount = pages.at(-1)?.cumulative_records ?? 0;
         return {
             profile_format: "chatgpt-export-performance-v1",
-            userscript_version: "0.2.1",
+            userscript_version: "0.2.2",
             created_at: startedAt,
             reported_at: new Date().toISOString(),
             completed,
@@ -189,7 +195,7 @@ function createExportProfiler(options = {}) {
     }
 
     return {
-        instrumentFetch, trackPage, runStarted, runEnded,
+        instrumentFetch, trackPage, runStarted, runEnded, activeElapsedMs,
         noteDownload, hasSamples, report
     };
 }
