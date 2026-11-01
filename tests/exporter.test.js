@@ -337,7 +337,7 @@ test("generated UI uses bottom-right launcher and a separate performance report 
 });
 
 
-test("Cancel is enabled during a fetch and visibly greyed out after success", async () => {
+test("Cancel is replaced by Save performance report on completion", async () => {
     const code = fs.readFileSync(path.join(
         __dirname, "../userscripts/chatgpt-conversation-export.user.js"
     ), "utf8");
@@ -419,13 +419,19 @@ test("Cancel is enabled during a fetch and visibly greyed out after success", as
     resolvePage(ok(page([msg("one")], "cursor-end", false)));
     await new Promise(resolve => setImmediate(resolve));
 
-    assert.equal(cancel.disabled, true);
-    assert.equal(cancel.style.opacity, "0.55");
-    assert.equal(cancel.style.cursor, "not-allowed");
-    assert.equal(cancel.attributes["aria-disabled"], "true");
+    assert.equal(cancel.hidden, true);
+    assert.equal(cancel.style.display, "none");
     assert.ok(elements.some(e =>
+        e.textContent === "Export complete – ZIP download started."
+    ) || elements.some(e =>
         e.textContent === "Export complete – JSON download started."
     ));
+    const profileAction = elements.find(e =>
+        e.textContent === "Save performance report"
+    );
+    assert.ok(profileAction);
+    assert.equal(profileAction.hidden, false);
+    assert.equal(profileAction.style.display, "");
 });
 
 
@@ -559,12 +565,13 @@ test("reopening a dismissed running export restores progress and enabled Cancel"
     assert.match(progress.textContent, /1 API pages, 1 message records/);
     assert.equal(ui.messageRequests, 2);
 
-    // Completion after reopening must disable and grey out Cancel.
+    // Completion after reopening must replace Cancel with the profile action.
     ui.pending[1](ok(page([msg("n1")], "cursor-oldest", false)));
     await ui.settle();
     await ui.settle();
-    assert.equal(cancel.disabled, true);
-    assert.equal(cancel.style.opacity, "0.55");
+    assert.equal(cancel.hidden, true);
+    assert.equal(cancel.style.display, "none");
+    assert.equal(ui.findButton("Save performance report").hidden, false);
 });
 
 
@@ -627,6 +634,9 @@ test("performance report action is hidden until the export settles successfully"
     await ui.settle();
     const performance = ui.findButton("Save performance report");
     assert.ok(performance);
+    const cancel = ui.findButton("Cancel");
+    assert.equal(cancel.hidden, false);
+    assert.equal(cancel.style.display, "");
     assert.equal(performance.hidden, true);
     assert.equal(performance.style.display, "none");
 
@@ -636,8 +646,8 @@ test("performance report action is hidden until the export settles successfully"
     assert.equal(performance.hidden, false);
     assert.equal(performance.style.display, "");
     assert.equal(performance.disabled, false);
-    const cancel = ui.findButton("Cancel");
-    assert.equal(cancel.disabled, true);
+    assert.equal(cancel.hidden, true);
+    assert.equal(cancel.style.display, "none");
 });
 
 test("performance report action appears after export error without completed pages", async () => {
@@ -645,12 +655,16 @@ test("performance report action appears after export error without completed pag
     ui.launcher.listeners.click();
     await ui.settle();
     const performance = ui.findButton("Save performance report");
+    const cancel = ui.findButton("Cancel");
+    assert.equal(cancel.hidden, false);
     assert.equal(performance.hidden, true);
     ui.pending[0]({ ok: false, status: 403 });
     await ui.settle();
     await ui.settle();
     assert.equal(performance.hidden, false);
     assert.equal(performance.disabled, false);
+    assert.equal(cancel.hidden, true);
+    assert.equal(cancel.style.display, "none");
 });
 
 
@@ -707,9 +721,12 @@ test("launcher spinner resets on HTTP error and when export is restarted", async
     assert.equal(ui.spinner.style.display, "none");
     assert.equal(ui.launcher.attributes["aria-busy"], "false");
     assert.equal(ui.findButton("Save performance report").hidden, false);
+    assert.equal(ui.findButton("Cancel").hidden, true);
 
     ui.launcher.listeners.click();
     await ui.settle();
+    assert.equal(ui.findButton("Save performance report").hidden, true);
+    assert.equal(ui.findButton("Cancel").hidden, false);
     assert.equal(ui.spinner.style.display, "inline-block");
     assert.equal(ui.messageRequests, 2);
 
@@ -739,4 +756,51 @@ test("launcher spinner stops after user cancellation even when panel was dismiss
     assert.equal(ui.spinner.style.display, "none");
     assert.equal(ui.launcher.attributes["aria-busy"], "false");
     assert.equal(ui.visiblePanel(), null);
+});
+
+
+test("Cancel is replaced by Save performance report after user cancellation", async () => {
+    const ui = makeExportUiHarness();
+    ui.launcher.listeners.click();
+    await ui.settle();
+    const cancel = ui.findButton("Cancel");
+    const performance = ui.findButton("Save performance report");
+    assert.equal(cancel.hidden, false);
+    assert.equal(performance.hidden, true);
+
+    cancel.listeners.click();
+    ui.pending[0](ok(page([msg("interrupted")], "cursor-end", false)));
+    await ui.settle();
+    await ui.settle();
+
+    assert.equal(cancel.hidden, true);
+    assert.equal(cancel.style.display, "none");
+    assert.equal(performance.hidden, false);
+    assert.equal(performance.style.display, "");
+    assert.equal(performance.disabled, false);
+});
+
+test("reopened running export retains Cancel and keeps performance report hidden", async () => {
+    const ui = makeExportUiHarness();
+    ui.launcher.listeners.click();
+    await ui.settle();
+    ui.findButton("Close").listeners.click();
+    assert.equal(ui.visiblePanel(), null);
+
+    ui.launcher.listeners.click();
+    const panel = ui.visiblePanel();
+    assert.ok(panel);
+    const cancel = ui.findButton("Cancel");
+    const performance = ui.findButton("Save performance report");
+    assert.equal(cancel.hidden, false);
+    assert.equal(cancel.disabled, false);
+    assert.equal(performance.hidden, true);
+    assert.equal(performance.style.display, "none");
+    assert.equal(ui.messageRequests, 1);
+
+    ui.pending[0]({ ok: false, status: 403 });
+    await ui.settle();
+    await ui.settle();
+    assert.equal(cancel.hidden, true);
+    assert.equal(performance.hidden, false);
 });
