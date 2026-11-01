@@ -518,21 +518,67 @@
     }
 
     async function download(data, signal) {
+        let attachmentData = null;
+        if (state.includeAttachments) {
+            report("Downloading attachments ...", "Finding referenced files ...");
+            attachmentData = await collectAttachments(
+                data.messages, data.conversation_id, {
+                    signal, fetchImpl: (...args) => fetch(...args),
+                    onProgress: (n, total) => report(
+                        "Downloading attachments ...",
+                        "Attachment " + n + " of " + total
+                    )
+                }
+            );
+            // The chat JSON remains otherwise unchanged. The flag accurately
+            // indicates that separate attachment retrieval was attempted.
+            data.local_export_audit.attachments_fetched_separately = true;
+        }
         const started = performance.now();
         const json = JSON.stringify(data, null, 2);
         const serializationMs = Math.round((performance.now() - started) * 10) / 10;
         const jsonFileName = "chatgpt-conversation-" + data.conversation_id + ".json";
-        const compressed = await compressJsonAsZipOrPlain(json, jsonFileName);
+        let compressed, warning = null;
+        if (attachmentData) {
+            try {
+                const entries = [
+                    { name: jsonFileName, bytes: json },
+                    { name: "attachments-manifest.json",
+                      bytes: JSON.stringify(attachmentData.manifest, null, 2) },
+                    ...attachmentData.entries
+                ];
+                const zip = await compressFilesToZip(entries);
+                compressed = {
+                    blob: zip.blob,
+                    fileName: jsonFileName.replace(/\.json$/i, ".zip"),
+                    format: "zip",
+                    jsonBytes: new TextEncoder().encode(json).byteLength,
+                    archiveBytes: zip.archiveBytes,
+                    compressionMs: zip.compressionMs
+                };
+                if (attachmentData.summary.failed || attachmentData.summary.skipped_limit) {
+                    warning = "Some attachments were unavailable or skipped; see attachments-manifest.json.";
+                }
+            } catch (error) {
+                // Do not lose the underlying conversation if the experimental
+                // multi-file ZIP implementation cannot package the binaries.
+                console.warn("[ChatGPT Conversation Exporter] Attachment packaging failed.");
+                compressed = await compressJsonAsZipOrPlain(json, jsonFileName);
+                warning = "Attachment ZIP failed; saved conversation only.";
+            }
+        } else {
+            compressed = await compressJsonAsZipOrPlain(json, jsonFileName);
+            warning = compressed.warning;
+        }
 
-        // A user can cancel while native compression is still underway.
         if (signal.aborted) {
             const error = new Error("Export cancelled during compression.");
             error.name = "AbortError";
             throw error;
         }
 
-        if (compressed.warning) {
-            console.warn("[ChatGPT Conversation Exporter]", compressed.warning);
+        if (warning) {
+            console.warn("[ChatGPT Conversation Exporter]", warning);
         }
         saveBlob(compressed.blob, compressed.fileName);
         return {
@@ -543,7 +589,8 @@
             archive_bytes: compressed.archiveBytes,
             compression_ms: compressed.compressionMs,
             serialization_ms: serializationMs,
-            warning: compressed.warning
+            attachments: attachmentData ? attachmentData.summary : null,
+            warning
         };
     }
 
@@ -673,6 +720,9 @@
                 "Duration: " + activeDuration + " (active); " +
                 "JSON uncompressed: " + jsonSizeMiB + " MiB; " +
                 downloadedSize + " – " + result.fileName +
+                (result.attachments ?
+                    " | Attachments: " + result.attachments.downloaded +
+                    "/" + result.attachments.discovered + " downloaded" : "") +
                 (result.warning ? " | " + result.warning : "")
             );
         } catch (error) {
