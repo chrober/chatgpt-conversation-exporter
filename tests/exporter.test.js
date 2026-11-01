@@ -1325,9 +1325,18 @@ test("attachment checkbox is opt-in, session scoped and saved only on explicit S
     await ui.settle();
     ui.modeButton().listeners.click();
     const check = ui.attachmentInput();
-    assert.equal(check.checked, false);
-    check.checked = true;
-    check.listeners.change();
+    assert.equal(check.tagName, "button");
+    assert.equal(check.attributes.role, "checkbox");
+    assert.equal(check.attributes["aria-checked"], "false");
+    assert.equal(check.style.display, "inline-flex");
+    assert.equal(check.style.width, "18px");
+    assert.equal(check.style.height, "18px");
+    assert.equal(check.style.border, "1px solid #8c99a8");
+    assert.equal(check.children[0].tagName, "svg");
+    assert.equal(check.children[0].style.visibility, "hidden");
+    check.listeners.click();
+    assert.equal(check.attributes["aria-checked"], "true");
+    assert.equal(check.children[0].style.visibility, "visible");
     assert.equal(durable.size, 0);
     assert.equal(JSON.parse(tab.get(
         "chatgpt-conversation-exporter.session-settings.v2")).includeAttachments, true);
@@ -1338,9 +1347,9 @@ test("attachment checkbox is opt-in, session scoped and saved only on explicit S
     const reloaded = makeExportUiHarness(durable);
     await reloaded.settle();
     reloaded.modeButton().listeners.click();
-    assert.equal(reloaded.attachmentInput().checked, true);
+    assert.equal(reloaded.attachmentInput().attributes["aria-checked"], "true");
     reloaded.findButton("Load defaults").listeners.click();
-    assert.equal(reloaded.attachmentInput().checked, false);
+    assert.equal(reloaded.attachmentInput().attributes["aria-checked"], "false");
     assert.equal(durable.get("chatgpt-conversation-exporter.settings.v2").includeAttachments, true);
 });
 
@@ -1351,9 +1360,9 @@ test("attachment controls are disabled while export is active", async () => {
     ui.modeButton().listeners.click();
     const check = ui.attachmentInput();
     assert.equal(check.disabled, true);
-    check.checked = true;
-    check.listeners.change();
-    assert.equal(check.checked, false);
+    assert.equal(check.attributes["aria-checked"], "false");
+    check.listeners.click();
+    assert.equal(check.attributes["aria-checked"], "false");
     ui.pending[0](ok(page([msg("last")], "end", false)));
     await ui.settle();
     await ui.settle();
@@ -1366,8 +1375,7 @@ test("attachment-enabled UI exports ZIP with a manifest and counts retrieved fil
     await ui.settle();
     ui.modeButton().listeners.click();
     const checkbox = ui.attachmentInput();
-    checkbox.checked = true;
-    checkbox.listeners.change();
+    checkbox.listeners.click();
     ui.launcher.listeners.click();
     await ui.settle();
     const withAttachment = {
@@ -1405,4 +1413,27 @@ test("attachment-enabled UI exports ZIP with a manifest and counts retrieved fil
         "Export complete – ZIP download started.");
     assert.match(panel.children[2].textContent, /Attachments: 1\/1 downloaded/);
     assert.doesNotMatch(panel.children[2].textContent, /TEST_SIGNATURE/);
+});
+
+
+test("attachment indicator and label click toggle an explicit visible checkbox independently of host input styles", async () => {
+    const ui = makeExportUiHarness(new Map());
+    await ui.settle();
+    ui.modeButton().listeners.click();
+    const checkbox = ui.attachmentInput();
+    const row = checkbox.parentNode || null;
+    // The button's own visible SVG check mark must track the ARIA checked state.
+    assert.equal(checkbox.type, "button");
+    assert.equal(checkbox.attributes["aria-checked"], "false");
+    assert.equal(checkbox.children[0].style.visibility, "hidden");
+    checkbox.listeners.click();
+    assert.equal(checkbox.attributes["aria-checked"], "true");
+    assert.equal(checkbox.children[0].style.visibility, "visible");
+    assert.equal(checkbox.style.backgroundColor, "#2563eb");
+    checkbox.listeners.click();
+    assert.equal(checkbox.attributes["aria-checked"], "false");
+    assert.equal(checkbox.children[0].style.visibility, "hidden");
+    assert.equal(checkbox.style.backgroundColor, "#354152");
+    assert.equal(checkbox.attributes.role, "checkbox");
+    assert.equal(row === null || row.tagName === "div", true);
 });
