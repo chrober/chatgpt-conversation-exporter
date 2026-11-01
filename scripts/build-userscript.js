@@ -13,8 +13,8 @@ const metadata = [
     "// ==UserScript==",
     "// @name         ChatGPT Conversation Exporter",
     "// @namespace    https://github.com/chrober/chatgpt-conversation-exporter",
-    "// @version      0.1.1",
-    "// @description  Exportiert den aktuell geöffneten Original-Chat als JSON.",
+    "// @version      0.1.2",
+    "// @description  Export the current ChatGPT conversation as JSON.",
     "// @match        https://chatgpt.com/*",
     "// @run-at       document-idle",
     "// @grant        GM_registerMenuCommand",
@@ -26,6 +26,7 @@ const output = [
     metadata,
     "(function () {",
     core,
+    profiling,
     entry,
     "})();"
 ].join("\n\n") + "\n";
