@@ -100,7 +100,8 @@ function createExportProfiler(options = {}) {
             http_attempts: attempts.length,
             fetch_ms: total(attempts, "fetch_ms"),
             json_parse_ms: total(attempts, "parse_ms"),
-            num_turns: attempts.at(-1)?.num_turns ?? null
+            num_turns: attempts.at(-1)?.num_turns ?? null,
+            request_delay_ms: snapshot.requestDelayMs ?? null
         });
         lastRecords = snapshot.records;
     }
@@ -164,6 +165,7 @@ function createExportProfiler(options = {}) {
                     counts[key] = (counts[key] || 0) + 1;
                     return counts;
                 }, {}),
+                request_delay_ms: pages.at(-1)?.request_delay_ms ?? null,
                 retries: messageRequests.filter(item => item.attempt > 1).length,
                 request_status_counts: httpStatusCounts,
                 network_header_wait_ms: sumFetch,
