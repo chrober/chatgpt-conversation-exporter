@@ -1,20 +1,20 @@
 # Installation, Bedienung und Firefox-Abnahme
 
-> Entwicklungsstand 0.1.7 (Tampermonkey + Greasemonkey). Die Version 0.1.1 wurde mit **Tampermonkey unter Firefox erfolgreich ausgeführt**. Der animierte Spinner im Exportbutton muss in Firefox/Tampermonkey noch praktisch überprüft werden.
+> Entwicklungsstand 0.1.8 (Tampermonkey + Greasemonkey). Die Version 0.1.1 wurde mit **Tampermonkey unter Firefox erfolgreich ausgeführt**. Der terminale Wechsel der Aktionen (Cancel → Save performance report) muss in Firefox/Tampermonkey noch praktisch überprüft werden.
 
 ## Vorbereitungen
 
 - Firefox mit **Tampermonkey** oder Greasemonkey **4.11+**. Das Script unterstützt `GM_registerMenuCommand` und `GM.registerMenuCommand` und bietet zusätzlich einen immer sichtbaren Export-Button.
 - Bei `https://chatgpt.com` angemeldet sein und Zugriff auf den **Original-Chat** haben.
 - Genügend freier RAM und Festplattenspeicher; lange Chats können mehrere Dutzend MiB JSON erzeugen.
-- Das GitHub-Repository ist **öffentlich**. [V0.1.7 direkt aus dem Feature-Branch installieren](https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/refs/heads/feat/greasemonkey-single-conversation-export/userscripts/chatgpt-conversation-export.user.js). Falls Firefox keine Installation anbietet, den Raw-Inhalt in den Userscript-Editor einfügen. Eine vorhandene V0.1.0-/V0.1.1-Installation auf V0.1.7 aktualisieren oder ersetzen. Es gibt keine externen Bibliotheken.
+- Das GitHub-Repository ist **öffentlich**. [V0.1.8 direkt aus dem Feature-Branch installieren](https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/refs/heads/feat/greasemonkey-single-conversation-export/userscripts/chatgpt-conversation-export.user.js). Falls Firefox keine Installation anbietet, den Raw-Inhalt in den Userscript-Editor einfügen. Eine vorhandene V0.1.0-/V0.1.1-Installation auf V0.1.8 aktualisieren oder ersetzen. Es gibt keine externen Bibliotheken.
 
 ## Bedienung
 
 1. Original-Chat öffnen, etwa `https://chatgpt.com/c/<conversation-id>` oder `https://chatgpt.com/g/<projekt>/c/<conversation-id>`. **Nach Installation/Update Chat-Tab neu laden.**
 2. **Unten rechts auf der ChatGPT-Seite „Export chat as JSON“ klicken.** Optional über den Greasemonkey-/Tampermonkey-Menüpunkt **„Export current chat as JSON“** starten. In Tampermonkey öffnet der Pfeil rechts neben dem Script-Namen lediglich **Bearbeiten / Problem melden / Löschen**, nicht die Exportaktion.
 3. Im Statusfenster oberhalb des Buttons **API pages** (paginierte HTTP-Antworten, keine UI-Seiten) und **message records** (technische Nachrichtenobjekte) beobachten. Der Export startet **nur nach der Klickaktion**.
-4. **Cancel** bricht den Export ab und ist nur während eines laufenden Exports aktiv; nach Abschluss, Abbruch oder Fehler ist er **disabled/grau**. **Close** schließt dagegen ausschließlich das Fortschrittsfenster: Der Export läuft im aktuellen Tab weiter und öffnet das Fenster nicht automatisch erneut. **Ein rotierender Spinner rechts im Export-Hauptbutton zeigt die Aktivität weiterhin an**, auch wenn das Fenster geschlossen wurde. Bei laufendem Export zeigt ein erneuter Klick auf **Export chat as JSON** das Fenster wieder mit dem aktuellen Fortschritt und aktivem **Cancel** – ohne weitere Exportinstanz oder doppelte Abfragen. Nach einem tatsächlichen Abbruch setzt ein erneuter Klick den Export ab der letzten validierten API-Seite fort.
+4. **Cancel** ist ausschließlich während eines laufenden Exports sichtbar. Nach Erfolg, Abbruch oder Fehler **verschwindet Cancel** und wird durch **Save performance report** ersetzt. **Close** schließt dagegen ausschließlich das Fortschrittsfenster: Der Export läuft im aktuellen Tab weiter und öffnet das Fenster nicht automatisch erneut. **Ein rotierender Spinner rechts im Export-Hauptbutton zeigt die Aktivität weiterhin an**, auch wenn das Fenster geschlossen wurde. Bei laufendem Export zeigt ein erneuter Klick auf **Export chat as JSON** das Fenster wieder mit dem aktuellen Fortschritt und aktivem **Cancel** – ohne weitere Exportinstanz oder doppelte Abfragen. Nach einem tatsächlichen Abbruch setzt ein erneuter Klick den Export ab der letzten validierten API-Seite fort.
 5. Nach **Export complete – ZIP download started** die Datei `chatgpt-conversation-<conversation-id>.zip` herunterladen und entpacken. Darin liegt die vollständige `chatgpt-conversation-<conversation-id>.json`. Wenn die native Browser-Komprimierung ausfällt, wird stattdessen automatisch das unkomprimierte `.json` gespeichert und dies im Statusfenster vermerkt.
 6. Entpacktes oder direkt heruntergeladenes JSON prüfen: `messages` als Array, `page_metadata`, `local_export_audit.pagination_verified === true`, `local_export_audit.unique_records` plausibel, zuletzt `has_previous_page=false`. Anfang und Ende des Verlaufs stichprobenartig mit dem Original abgleichen.
 
@@ -25,7 +25,7 @@ Das Statusfenster zeigt **keine Nachrichteninhalte** an. **Save performance repo
 - [ ] Tampermonkey-/Greasemonkey-Menübefehl erscheint auf dem ChatGPT-Tab (falls vom Manager unterstützt).
 - [ ] Der **„Export chat as JSON“**-Button unten rechts erscheint in Firefox auch ohne Menübefehl und verdeckt das ChatGPT-Menü nicht.
 - [ ] Fortschrittsfenster erscheint direkt über dem Button; alle Statusmeldungen sind auf Englisch.
-- [ ] **Cancel** ist während eines Exports aktiv und anschließend sichtbar grau/deaktiviert; der Profiling-Download funktioniert weiterhin.
+- [ ] **Cancel** ist während eines laufenden Exports sichtbar, **Save performance report** ist verborgen. Nach Erfolg, Fehler und Abbruch verschwindet Cancel vollständig; Save performance report erscheint an dessen Stelle, und Close bleibt sichtbar.
 - [ ] Während eines laufenden Exports auf **Close** klicken: das Fenster bleibt trotz weiterer API-Seiten und Abschluss geschlossen; der **Spinner im Hauptbutton dreht sich weiter** und der Download wird trotzdem fertiggestellt.
 - [ ] Spinner ist bei inaktivem Export verborgen, während API-Abrufen und ZIP-Komprimierung sichtbar und verschwindet bei Erfolg, Abbruch oder Fehler. Erneutes Öffnen des Statusfensters unterbricht die Animation nicht.
 - [ ] Während eines laufenden Exports nach **Close** den Export-Button erneut drücken: Statusfenster erscheint mit aktuellem Fortschritt, **Cancel** ist aktiv; keine zweite Exportinstanz startet.
@@ -44,13 +44,13 @@ Das Statusfenster zeigt **keine Nachrichteninhalte** an. **Save performance repo
 - [ ] Keine Chat- oder Authentifizierungsdaten werden an andere Origins gesendet.
 - [ ] Kein privates JSON, kein Zugriffstoken in Git oder CI-Test-Logs.
 
-**Browserstatus:** Tampermonkey-Version 0.1.1 ist vom Anwender erfolgreich getestet. Der neue 0.1.7-Build muss noch überprüft werden. Automatisierte Tests können reale Firefox-Sandbox-, Layout- und Downloadprobleme nicht vollständig ausschließen.
+**Browserstatus:** Tampermonkey-Version 0.1.1 ist vom Anwender erfolgreich getestet. Der neue 0.1.8-Build muss noch überprüft werden. Automatisierte Tests können reale Firefox-Sandbox-, Layout- und Downloadprobleme nicht vollständig ausschließen.
 
 ## Fehlerdiagnose
 
 | Beobachtung | Maßnahme |
 | --- | --- |
-| Menüpunkt fehlt | Der Pfeil neben dem installierten Script in Tampermonkey zeigt nur Verwaltungsaktionen. **ChatGPT-Tab neu laden und unten rechts den Export-Button verwenden.** Scriptversion 0.1.7 sowie Grants `GM_registerMenuCommand` / `GM.registerMenuCommand` prüfen. |
+| Menüpunkt fehlt | Der Pfeil neben dem installierten Script in Tampermonkey zeigt nur Verwaltungsaktionen. **ChatGPT-Tab neu laden und unten rechts den Export-Button verwenden.** Scriptversion 0.1.8 sowie Grants `GM_registerMenuCommand` / `GM.registerMenuCommand` prüfen. |
 | `HTTP 401/403` | Angemeldete Sitzung und Sandbox-Zugriff prüfen; keine Token in Tickets posten. |
 | `HTTP 500 Request timeout` | Die Kernlogik nutzt direkte, kleine Paginierungsabfragen und wiederholt temporäre Fehler. |
 | `Paginierungsstatus fehlt`, leere Seite, Cursor wiederholt | API-Schema oder Daten verändert: bewusst **kein** Teil-Export; Diagnose ohne vertrauliche Daten erstellen. |
