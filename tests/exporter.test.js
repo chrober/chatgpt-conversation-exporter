@@ -385,6 +385,7 @@ test("Cancel is enabled during a fetch and visibly greyed out after success", as
             }
         },
         URL,
+        URLSearchParams,
         Blob,
         AbortController,
         performance,
