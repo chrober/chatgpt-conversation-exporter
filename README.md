@@ -2,15 +2,15 @@
 
 Ein eigenständiges **Greasemonkey-/Tampermonkey-Userscript** zum lokalen JSON-Export **einer einzelnen, aktuell geöffneten Original-ChatGPT-Unterhaltung**. Kein Gesamtexport des Kontos und kein automatischer Export bei jedem Seitenaufruf.
 
-> **Status: Entwicklungsfassung 0.1.6 auf Feature-Branch.** Die zugrundeliegende Browser-Konsolen-Version wurde praktisch bestätigt. Die Tampermonkey-Version 0.1.1 wurde unter Firefox vom Anwender erfolgreich getestet. Die neue 0.1.6-ZIP-Komprimierung und die finale Statusaktion benötigen noch einen Firefox-/Tampermonkey-Smoke-Test.
+> **Status: Entwicklungsfassung 0.1.7 auf Feature-Branch.** Die zugrundeliegende Browser-Konsolen-Version wurde praktisch bestätigt. Die Tampermonkey-Version 0.1.1 wurde unter Firefox vom Anwender erfolgreich getestet. Der neue Aktivitätsindikator der Version 0.1.7 benötigt noch eine Firefox-/Tampermonkey-Abnahme.
 
 ## Installation und Bedienung
 
 1. Für Firefox **Tampermonkey** (oder Greasemonkey 4.11+) installieren.
-2. Die Datei [`userscripts/chatgpt-conversation-export.user.js`](userscripts/chatgpt-conversation-export.user.js) aus diesem Branch installieren. [Direktlink zur Raw-Datei](https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/refs/heads/feat/greasemonkey-single-conversation-export/userscripts/chatgpt-conversation-export.user.js). **Version 0.1.6:** Eine bereits installierte ältere Version aktualisieren oder ersetzen, nicht zusätzlich als zweites aktives Script installieren.
+2. Die Datei [`userscripts/chatgpt-conversation-export.user.js`](userscripts/chatgpt-conversation-export.user.js) aus diesem Branch installieren. [Direktlink zur Raw-Datei](https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/refs/heads/feat/greasemonkey-single-conversation-export/userscripts/chatgpt-conversation-export.user.js). **Version 0.1.7:** Eine bereits installierte ältere Version aktualisieren oder ersetzen, nicht zusätzlich als zweites aktives Script installieren.
 3. Auf `https://chatgpt.com` anmelden und **einen Original-Chat** öffnen: `/c/<uuid>` oder `/g/.../c/<uuid>`. Nach Installation/Update den Chat-Tab **neu laden**, um das neue Script auszuführen.
 4. Unten rechts auf der ChatGPT-Seite **„Export chat as JSON“** klicken. Alternativ den Befehl **„Export current chat as JSON“** im Userscript-Manager-Menü wählen, falls dieser angeboten wird. Der kleine Pfeil neben dem installierten Script in Tampermonkey öffnet **nur dessen Verwaltungsmenü**, nicht den Export.
-5. Das Statusfenster oberhalb des Export-Buttons zeigt **„API pages“** und **„message records“** an. **Cancel** unterbricht den Abruf, **Export chat as JSON** setzt ihn im selben Tab fort. **Close schließt ausschließlich das Statusfenster – nicht den laufenden Export.** Es bleibt auch bei späteren Fortschrittsmeldungen geschlossen. Während eines laufenden Exports öffnet ein Klick auf **Export chat as JSON** das Statusfenster erneut, ohne einen zweiten Export zu starten; **Cancel** ist dabei weiterhin aktiv. **Save performance report** erscheint **erst nach Ende des Exportversuchs** (Erfolg, Fehler oder Abbruch), damit der Bericht vollständig ist.
+5. Das Statusfenster oberhalb des Export-Buttons zeigt **„API pages“** und **„message records“** an. **Cancel** unterbricht den Abruf, **Export chat as JSON** setzt ihn im selben Tab fort. **Close schließt ausschließlich das Statusfenster – nicht den laufenden Export.** Es bleibt auch bei späteren Fortschrittsmeldungen geschlossen; der Spinner im Hauptbutton zeigt weiterhin die Aktivität an. Während eines laufenden Exports öffnet ein Klick auf **Export chat as JSON** das Statusfenster erneut, ohne einen zweiten Export zu starten; **Cancel** ist dabei weiterhin aktiv. **Save performance report** erscheint **erst nach Ende des Exportversuchs** (Erfolg, Fehler oder Abbruch), damit der Bericht vollständig ist.
 6. Nach bestätigtem Paginierungsende wird standardmäßig ein **ZIP-Archiv** `chatgpt-conversation-<uuid>.zip` heruntergeladen, das eine vollständige `chatgpt-conversation-<uuid>.json` enthält. Bei fehlender oder gescheiterter browsernativer ZIP-Unterstützung folgt ein ausdrücklich gekennzeichneter **unkomprimierter `.json`-Fallback**. Die Datei nach dem Download kontrollieren.
 
 Das Repository ist inzwischen **öffentlich**. Die automatische Aktualisierung über `@downloadURL`/`@updateURL` ist bis zur ersten stabilen Version noch nicht konfiguriert; aktualisiere die Entwicklungsfassung bei Bedarf über den Raw-Link.
@@ -19,7 +19,7 @@ Ausführliche Hinweise: [Installation / manueller Smoke-Test](docs/installation-
 
 ## Eigenschaften
 
-- Tampermonkey-/Greasemonkey-Menüeintrag **und** sichtbarer Export-Button **unten rechts**, mit Fortschrittsfenster direkt darüber, ohne automatischen Export
+- Tampermonkey-/Greasemonkey-Menüeintrag **und** sichtbarer Export-Button **unten rechts** mit animiertem Spinner während aller aktiven Exportphasen (API-Abruf, Retries, ZIP-Komprimierung), unabhängig vom geöffneten/geschlossenen Fortschrittsfenster
 - Automatische Ermittlung der aktuellen Chat-URL im **Moment des Klicks**
 - Authentifizierter Abruf über die bestehende ChatGPT-Sitzung
 - Cursor-Paginierung mit `num_turns=1`, `include_has_versions=true`, `before=start_cursor`
