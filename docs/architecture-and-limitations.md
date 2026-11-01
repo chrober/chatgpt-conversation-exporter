@@ -110,7 +110,9 @@ This is an **illustrative schema**, not a realistic completed export. `page_meta
 
 `pagination_verified: true` means **the backend reported the end of the fetched older-page chain**. It does not prove that all historical versions, alternative branches, or external attachments were captured. `attachments_fetched_separately` is always `false`.
 
-## Optional attachments (experimental v0.3.0-beta.1)
+## Optional attachments (experimental v0.3.0-beta.2)
+
+The attachment selection is rendered as a **custom 18×18 pixel visual checkbox** using a native `button` with `role="checkbox"`, a dynamic `aria-checked` attribute and a hand-drawn SVG tick. No browser-native checkbox appearance is used, avoiding style resets by ChatGPT's global CSS. Tab and Space/Enter retain keyboard accessibility.
 
 `src/attachments.js` implements **best-effort** file discovery and retrieval *after* a validated conversation export. It is deliberately separate from the original pagination core. The feature is disabled by default and is included in the existing session-only settings / explicit **Save** model.
 
