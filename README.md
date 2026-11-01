@@ -54,27 +54,27 @@ The regular conversation export is **unchanged when the option is disabled**. In
 
 When enabled, the ZIP will contain:
 
-\`\`\`text
+```text
 chatgpt-conversation-<id>.json
 attachments-manifest.json
 attachments/001-example.pdf
 attachments/002-generated-report.xlsx
-\`\`\`
+```
 
-The entries under \`attachments/\` are only present for files that actually download. The manifest lists each discovered file, its originating message ID/role, attempted download result, archive path and size. It records a reason for missing or unsupported downloads. Signed download URLs and session tokens are **never** included in the manifest.
+The entries under `attachments/` are only present for files that actually download. The manifest lists each discovered file, its originating message ID/role, attempted download result, archive path and size. It records a reason for missing or unsupported downloads. Signed download URLs and session tokens are **never** included in the manifest.
 
 **Supported discovery (best effort):**
 
 - File IDs in structured message attachments, image asset pointers and other file metadata, resolved via an undocumented ChatGPT file-download endpoint.
-- Assistant-authored \`sandbox:/mnt/data/...\` links and structured sandbox paths, resolved via an undocumented interpreter download endpoint.
+- Assistant-authored `sandbox:/mnt/data/...` links and structured sandbox paths, resolved via an undocumented interpreter download endpoint.
 
-**Not guaranteed:** every generated image, linked file, Project/Library file, deleted/expired file, externally hosted attachment or agent output. The exporter cannot reconstruct a binary just from a filename or sandbox link. External signed download URLs are **not followed** in this initial version: only \`https://chatgpt.com/backend-api/...\` is permitted. Unsupported or expired references are recorded as failures rather than silently omitted.
+**Not guaranteed:** every generated image, linked file, Project/Library file, deleted/expired file, externally hosted attachment or agent output. The exporter cannot reconstruct a binary just from a filename or sandbox link. External signed download URLs are **not followed** in this initial version: only `https://chatgpt.com/backend-api/...` is permitted. Unsupported or expired references are recorded as failures rather than silently omitted.
 
 **Safety limits:** maximum 100 distinct references attempted, 50 MiB per file and 200 MiB combined downloaded attachment data. This protects browser memory; skipped references are reported. Downloads are sequential and cancelable. Archive entries are sanitized and numbered to prevent path traversal and name collisions.
 
-The attachment-enabled path creates a **multi-entry ZIP** even when native DEFLATE is not available (using uncompressed ZIP entries as needed). If experimental packaging itself fails, it falls back to the original conversation-only ZIP/JSON path with an explicit warning. The ordinary JSON document is preserved; when attachment retrieval is attempted, its \`local_export_audit.attachments_fetched_separately\` flag is set to \`true\`.
+The attachment-enabled path creates a **multi-entry ZIP** even when native DEFLATE is not available (using uncompressed ZIP entries as needed). If experimental packaging itself fails, it falls back to the original conversation-only ZIP/JSON path with an explicit warning. The ordinary JSON document is preserved; when attachment retrieval is attempted, its `local_export_audit.attachments_fetched_separately` flag is set to `true`.
 
-Example completion suffix: \`Attachments: 2/3 downloaded | Some attachments were unavailable or skipped; see attachments-manifest.json.\` (the manifest explains the individual results).
+Example completion suffix: `Attachments: 2/3 downloaded | Some attachments were unavailable or skipped; see attachments-manifest.json.` (the manifest explains the individual results).
 
 **Privacy:** The manifest and original conversation JSON contain identifiers and potentially sensitive file names. Do not upload archives or manifests publicly without reviewing them.
 
