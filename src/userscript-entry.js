@@ -14,6 +14,20 @@
         return window.location.origin + window.location.pathname;
     }
 
+    // The button already used the native disabled attribute; style it too so
+    // the completed (or cancelled) state is visually unmistakable.
+    function setCancelEnabled(button, enabled) {
+        button.disabled = !enabled;
+        button.setAttribute("aria-disabled", String(!enabled));
+        Object.assign(button.style, {
+            background: enabled ? "#354152" : "#414751",
+            borderColor: enabled ? "#8c99a8" : "#5d6470",
+            color: enabled ? "#f6f7f8" : "#a4aab3",
+            cursor: enabled ? "pointer" : "not-allowed",
+            opacity: enabled ? "1" : "0.55"
+        });
+    }
+
     function showPanel() {
         if (state.panel?.root?.isConnected) return state.panel;
         const root = document.createElement("aside");
@@ -89,7 +103,7 @@
             root.remove();
             state.panel = null;
         });
-        cancel.disabled = true;
+        setCancelEnabled(cancel, false);
         saveProfile.disabled = !state.profiler?.hasSamples();
         root.appendChild(actions);
         document.body.appendChild(root);
@@ -173,7 +187,7 @@
         const session = state.session;
         state.controller = new AbortController();
         const signal = state.controller.signal;
-        showPanel().cancel.disabled = false;
+        setCancelEnabled(showPanel().cancel, true);
         const runStarted = state.profiler.runStarted();
 
         try {
@@ -226,7 +240,7 @@
         } finally {
             state.profiler.runEnded(runStarted);
             state.controller = null;
-            if (state.panel) state.panel.cancel.disabled = true;
+            if (state.panel) setCancelEnabled(state.panel.cancel, false);
         }
     }
 
