@@ -437,6 +437,11 @@ function makeExportUiHarness() {
     urls.revokeObjectURL = () => {};
     let messageRequests = 0;
 
+    function setConnected(node, connected) {
+        node.isConnected = connected;
+        for (const child of node.children) setConnected(child, connected);
+    }
+
     function element(tagName) {
         const item = {
             tagName,
@@ -450,9 +455,9 @@ function makeExportUiHarness() {
             addEventListener(name, cb) { this.listeners[name] = cb; },
             appendChild(child) {
                 this.children.push(child);
-                child.isConnected = this.isConnected;
+                setConnected(child, this.isConnected);
             },
-            remove() { this.isConnected = false; },
+            remove() { setConnected(this, false); },
             click() {}
         };
         elements.push(item);
