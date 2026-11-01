@@ -402,7 +402,12 @@ test("Cancel is enabled during a fetch and visibly greyed out after success", as
 
     const cancel = elements.find(e => e.textContent === "Cancel");
     assert.ok(cancel);
-    assert.equal(cancel.disabled, false);
+    assert.equal(cancel.disabled, false, JSON.stringify({
+        statuses: elements.filter(e => typeof e.textContent === "string")
+            .map(e => ({ tag: e.tagName, text: e.textContent, connected: e.isConnected })),
+        pageStarted: typeof resolvePage === "function",
+        cancelState: { disabled: cancel.disabled, opacity: cancel.style.opacity }
+    }));
     assert.equal(cancel.style.opacity, "1");
     assert.equal(cancel.attributes["aria-disabled"], "false");
     assert.equal(typeof resolvePage, "function");
