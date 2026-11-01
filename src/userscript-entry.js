@@ -8,6 +8,7 @@
         controller: null,
         panel: null,
         profiler: null,
+        exportSettled: false,
         statusText: "Ready.",
         detailText: ""
     };
@@ -97,7 +98,7 @@
             state.controller?.abort();
         });
         const saveProfile = makeButton("Save performance report", () => {
-            if (state.profiler?.hasSamples()) {
+            if (state.exportSettled && state.profiler) {
                 downloadProfile(state.profiler.report());
                 report("Performance report downloaded.", "The report excludes chat content and identifiers.");
             }
@@ -108,11 +109,18 @@
         });
         setCancelEnabled(cancel, Boolean(state.controller &&
             !state.controller.signal.aborted));
-        saveProfile.disabled = !state.profiler?.hasSamples();
+        updatePerformanceAction({ saveProfile });
         root.appendChild(actions);
         document.body.appendChild(root);
         state.panel = { root, status, progress, cancel, saveProfile };
         return state.panel;
+    }
+
+    function updatePerformanceAction(panel) {
+        const available = state.exportSettled && Boolean(state.profiler);
+        panel.saveProfile.hidden = !available;
+        panel.saveProfile.style.display = available ? "" : "none";
+        panel.saveProfile.disabled = !available;
     }
 
     function report(message, detail = "") {
@@ -125,7 +133,7 @@
         if (panel) {
             panel.status.textContent = message;
             panel.progress.textContent = detail;
-            panel.saveProfile.disabled = !state.profiler?.hasSamples();
+            updatePerformanceAction(panel);
         }
         console.info("[ChatGPT Conversation Exporter]", message, detail);
     }
@@ -141,20 +149,33 @@
         setTimeout(() => URL.revokeObjectURL(url), 60000);
     }
 
-    function download(data) {
+    async function download(data, signal) {
         const started = performance.now();
         const json = JSON.stringify(data, null, 2);
         const serializationMs = Math.round((performance.now() - started) * 10) / 10;
-        const blob = new Blob([json], {
-            type: "application/json;charset=utf-8"
-        });
-        const fileName = "chatgpt-conversation-" + data.conversation_id + ".json";
-        saveBlob(blob, fileName);
+        const jsonFileName = "chatgpt-conversation-" + data.conversation_id + ".json";
+        const compressed = await compressJsonAsZipOrPlain(json, jsonFileName);
+
+        // A user can cancel while native compression is still underway.
+        if (signal.aborted) {
+            const error = new Error("Export cancelled during compression.");
+            error.name = "AbortError";
+            throw error;
+        }
+
+        if (compressed.warning) {
+            console.warn("[ChatGPT Conversation Exporter]", compressed.warning);
+        }
+        saveBlob(compressed.blob, compressed.fileName);
         return {
-            fileName,
-            sizeMiB: (blob.size / 1048576).toFixed(2),
-            json_bytes: blob.size,
-            serialization_ms: serializationMs
+            fileName: compressed.fileName,
+            format: compressed.format,
+            sizeMiB: (compressed.archiveBytes / 1048576).toFixed(2),
+            json_bytes: compressed.jsonBytes,
+            archive_bytes: compressed.archiveBytes,
+            compression_ms: compressed.compressionMs,
+            serialization_ms: serializationMs,
+            warning: compressed.warning
         };
     }
 
@@ -200,6 +221,8 @@
         }
 
         const session = state.session;
+        state.exportSettled = false;
+        if (state.panel?.root?.isConnected) updatePerformanceAction(state.panel);
         state.controller = new AbortController();
         const signal = state.controller.signal;
         setCancelEnabled(showPanel().cancel, true);
@@ -236,13 +259,15 @@
                 throw new Error("Pagination end was not verified.");
             }
 
-            const result = download(output);
+            const result = await download(output, signal);
             state.profiler.noteDownload(result);
             report(
-                "Export complete – JSON download started.",
+                "Export complete – " + result.format.toUpperCase() +
+                    " download started.",
                 output.local_export_audit.pages_loaded + " API pages, " +
                 output.local_export_audit.unique_records + " unique message records; " +
-                result.sizeMiB + " MiB – " + result.fileName
+                result.sizeMiB + " MiB – " + result.fileName +
+                (result.warning ? " | " + result.warning : "")
             );
         } catch (error) {
             const interrupted = signal.aborted || error.name === "AbortError";
@@ -255,7 +280,11 @@
         } finally {
             state.profiler.runEnded(runStarted);
             state.controller = null;
-            if (state.panel) setCancelEnabled(state.panel.cancel, false);
+            state.exportSettled = true;
+            if (state.panel?.root?.isConnected) {
+                setCancelEnabled(state.panel.cancel, false);
+                updatePerformanceAction(state.panel);
+            }
         }
     }
 
