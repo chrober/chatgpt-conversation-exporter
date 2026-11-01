@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Conversation Exporter
 // @namespace    https://github.com/chrober/chatgpt-conversation-exporter
-// @version      0.2.0
+// @version      0.2.1
 // @author       Christoph O'Bermair
 // @description  Export the current ChatGPT conversation as JSON.
 // @match        https://chatgpt.com/*
@@ -455,7 +455,7 @@ function createExportProfiler(options = {}) {
         const recordCount = pages.at(-1)?.cumulative_records ?? 0;
         return {
             profile_format: "chatgpt-export-performance-v1",
-            userscript_version: "0.2.0",
+            userscript_version: "0.2.1",
             created_at: startedAt,
             reported_at: new Date().toISOString(),
             completed,
@@ -1326,7 +1326,10 @@ if (typeof module !== "undefined" && module.exports) {
         Object.assign(toolbar.style, {
             position: "fixed", bottom: "18px", right: "18px",
             zIndex: "2147483646", display: "inline-flex",
-            alignItems: "center", gap: "5px"
+            alignItems: "center", gap: "5px",
+            // Prefer the live ChatGPT text token; inherit computed text
+            // color from the page when either token is unavailable.
+            color: "var(--text-primary, var(--token-text-primary, inherit))"
         });
         const button = document.createElement("button");
         button.id = "chatgpt-conversation-export-launcher";
@@ -1396,21 +1399,58 @@ if (typeof module !== "undefined" && module.exports) {
         button.addEventListener("click", () => { void startExport(); });
         toolbar.appendChild(button);
 
-        // Adjacent compact gear opens the numeric settings panel.
+        // The native button preserves keyboard/a11y semantics, but has
+        // no visual button chrome. A custom monochrome SVG avoids the
+        // platform-dependent Unicode glyph (often rendered as a ship wheel).
         const settings = document.createElement("button");
         settings.id = "chatgpt-conversation-export-mode-button";
         settings.type = "button";
-        settings.textContent = "⚙";
         settings.title = "Export performance settings";
         settings.setAttribute("aria-label", settings.title);
         Object.assign(settings.style, {
             display: "inline-flex", alignItems: "center",
             justifyContent: "center", width: "27px", height: "27px",
-            padding: "0", border: "1px solid #8c99a8",
-            borderRadius: "6px", color: "#fff", background: "#253144",
-            cursor: "pointer", font: "18px/1 system-ui, sans-serif",
-            boxShadow: "0 3px 12px rgba(0,0,0,.25)"
+            padding: "0", border: "0", borderRadius: "0",
+            background: "transparent", color: "inherit",
+            boxShadow: "none", appearance: "none",
+            cursor: "pointer", opacity: "0.85"
         });
+        const svgNS = "http://www.w3.org/2000/svg";
+        const gear = document.createElementNS(svgNS, "svg");
+        gear.setAttribute("viewBox", "0 0 24 24");
+        gear.setAttribute("width", "19");
+        gear.setAttribute("height", "19");
+        gear.setAttribute("fill", "currentColor");
+        gear.setAttribute("aria-hidden", "true");
+        gear.setAttribute("focusable", "false");
+        gear.style.display = "block";
+        const gearShape = document.createElementNS(svgNS, "path");
+        gearShape.setAttribute("fill-rule", "evenodd");
+        // Original 8-tooth gear geometry with a cut-out hub; no spokes.
+        gearShape.setAttribute("d",
+            "M 8.98 4.70 L 10.20 4.31 L 9.67 2.07 L 14.33 2.07 " +
+            "L 13.80 4.31 L 15.02 4.70 L 16.17 5.29 L 17.38 3.33 " +
+            "L 20.67 6.62 L 18.71 7.83 L 19.30 8.98 L 19.69 10.20 " +
+            "L 21.93 9.67 L 21.93 14.33 L 19.69 13.80 L 19.30 15.02 " +
+            "L 18.71 16.17 L 20.67 17.38 L 17.38 20.67 L 16.17 18.71 " +
+            "L 15.02 19.30 L 13.80 19.69 L 14.33 21.93 L 9.67 21.93 " +
+            "L 10.20 19.69 L 8.98 19.30 L 7.83 18.71 L 6.62 20.67 " +
+            "L 3.33 17.38 L 5.29 16.17 L 4.70 15.02 L 4.31 13.80 " +
+            "L 2.07 14.33 L 2.07 9.67 L 4.31 10.20 L 4.70 8.98 " +
+            "L 5.29 7.83 L 3.33 6.62 L 6.62 3.33 L 7.83 5.29 Z " +
+            "M 15 12 A 3 3 0 1 0 9 12 A 3 3 0 1 0 15 12 Z"
+        );
+        gear.appendChild(gearShape);
+        settings.appendChild(gear);
+        if (!document.getElementById("chatgpt-conversation-export-gear-style")) {
+            const style = document.createElement("style");
+            style.id = "chatgpt-conversation-export-gear-style";
+            style.textContent =
+                "#chatgpt-conversation-export-mode-button:hover {opacity: 1 !important;}" +
+                "#chatgpt-conversation-export-mode-button:focus-visible {" +
+                "outline: 2px solid currentColor; outline-offset: 2px; border-radius: 4px;}";
+            (document.head || document.body).appendChild(style);
+        }
         settings.addEventListener("click", toggleModePanel);
         toolbar.appendChild(settings);
         document.body.appendChild(toolbar);
