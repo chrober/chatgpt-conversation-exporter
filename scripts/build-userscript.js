@@ -12,10 +12,11 @@ const metadata = [
     "// ==UserScript==",
     "// @name         ChatGPT Conversation Exporter",
     "// @namespace    https://github.com/chrober/chatgpt-conversation-exporter",
-    "// @version      0.1.0",
+    "// @version      0.1.1",
     "// @description  Exportiert den aktuell geöffneten Original-Chat als JSON.",
     "// @match        https://chatgpt.com/*",
     "// @run-at       document-idle",
+    "// @grant        GM_registerMenuCommand",
     "// @grant        GM.registerMenuCommand",
     "// ==/UserScript=="
 ].join("\n");
