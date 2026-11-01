@@ -501,10 +501,12 @@
     }
 
     function formatDuration(milliseconds) {
-        const tenths = Math.max(0, Math.round(milliseconds / 100));
-        const hours = Math.floor(tenths / 36000);
-        const minutes = Math.floor(tenths / 600) % 60;
-        const seconds = ((tenths % 600) / 10).toFixed(1);
+        // Round once, then split the total into units. This handles carries
+        // correctly (e.g. 59.8s becomes 1m 0s, not 0m 60s).
+        const totalSeconds = Math.max(0, Math.round(milliseconds / 1000));
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor(totalSeconds / 60) % 60;
+        const seconds = totalSeconds % 60;
         if (hours) return hours + "h " + minutes + "m " + seconds + "s";
         if (minutes) return minutes + "m " + seconds + "s";
         return seconds + "s";
@@ -597,7 +599,7 @@
                     report(
                         "Fetching conversation ...",
                         info.pages + " API pages, " + info.records +
-                        " message records; checking for older pages"
+                        " message records"
                     );
                 }
             });
