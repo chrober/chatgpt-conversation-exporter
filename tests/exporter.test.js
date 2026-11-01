@@ -804,3 +804,106 @@ test("reopened running export retains Cancel and keeps performance report hidden
     assert.equal(cancel.hidden, true);
     assert.equal(performance.hidden, false);
 });
+
+
+test("two-turn batches reduce requests while retaining cursor order and validated output", async () => {
+    const urls = [];
+    const delays = [];
+    const fetchImpl = async url => {
+        if (url === "/api/auth/session") return ok({});
+        urls.push(url);
+        const q = new URL(url, "https://chatgpt.com").searchParams;
+        assert.equal(q.get("num_turns"), "2");
+        if (!q.has("before")) {
+            return ok(page([msg("newer"), msg("middle")], "cursor-fast", true));
+        }
+        assert.equal(q.get("before"), "cursor-fast");
+        return ok(page([msg("older")], "cursor-oldest", false));
+    };
+    const exporter = session(fetchImpl, {
+        numTurns: 2,
+        requestDelayMs: 100,
+        sleep: async ms => delays.push(ms)
+    });
+    const output = await exporter.run();
+    assert.deepEqual(output.messages.map(m => m.id), ["older", "newer", "middle"]);
+    assert.equal(output.local_export_audit.pagination_verified, true);
+    assert.equal(output.local_export_audit.pages_loaded, 2);
+    assert.equal(urls.length, 2);
+    assert.deepEqual(delays, [100]);
+    assert.equal(exporter.snapshot().effectiveNumTurns, 2);
+});
+
+test("fast batches fall back to proven 1-turn requests after repeated 5xx", async () => {
+    const calls = [];
+    const delays = [];
+    const fetchImpl = async url => {
+        if (url === "/api/auth/session") return ok({});
+        const q = new URL(url, "https://chatgpt.com").searchParams;
+        calls.push({ turns: q.get("num_turns"), before: q.get("before") });
+        if (!q.has("before")) return ok(page([msg("new")], "cursor-new", true));
+        if (q.get("num_turns") === "2") return fail(503);
+        return ok(page([msg("old")], "cursor-end", false));
+    };
+    const exporter = session(fetchImpl, {
+        numTurns: 2,
+        requestDelayMs: 100,
+        sleep: async ms => delays.push(ms)
+    });
+    const output = await exporter.run();
+    assert.deepEqual(calls.map(x => x.turns), ["2", "2", "2", "1"]);
+    assert.equal(calls[1].before, "cursor-new");
+    assert.equal(calls[3].before, "cursor-new");
+    assert.equal(exporter.snapshot().effectiveNumTurns, 1);
+    assert.equal(exporter.snapshot().fallbackCount, 1);
+    assert.deepEqual(output.messages.map(m => m.id), ["old", "new"]);
+    assert.equal(output.local_export_audit.pagination_verified, true);
+    assert.deepEqual(delays, [100, 1500, 3000]);
+});
+
+test("rate limiting never triggers batch-size downgrade", async () => {
+    let failures = 2;
+    const seenTurns = [];
+    const fetchImpl = async url => {
+        if (url === "/api/auth/session") return ok({});
+        const turns = new URL(url, "https://chatgpt.com").searchParams.get("num_turns");
+        seenTurns.push(turns);
+        if (failures-- > 0) return fail(429);
+        return ok(page([msg("one")], "end", false));
+    };
+    const exporter = session(fetchImpl, { numTurns: 2 });
+    const output = await exporter.run();
+    assert.equal(output.messages.length, 1);
+    assert.deepEqual(seenTurns, ["2", "2", "2"]);
+    assert.equal(exporter.snapshot().effectiveNumTurns, 2);
+    assert.equal(exporter.snapshot().fallbackCount, 0);
+});
+
+test("completed export re-run after Close leaves no greyed-out Cancel button", async () => {
+    const ui = makeExportUiHarness();
+    ui.launcher.listeners.click();
+    await ui.settle();
+    ui.pending[0](ok(page([msg("a")], "last", false)));
+    await ui.settle();
+    await ui.settle();
+    assert.equal(ui.findButton("Cancel").hidden, true);
+    assert.equal(ui.findButton("Save performance report").hidden, false);
+
+    ui.findButton("Close").listeners.click();
+    assert.equal(ui.visiblePanel(), null);
+    ui.launcher.listeners.click();
+    await ui.settle();
+    await ui.settle();
+
+    assert.equal(ui.messageRequests, 1, "completed session should not refetch backend");
+    assert.ok(ui.visiblePanel());
+    const cancel = ui.findButton("Cancel");
+    assert.ok(cancel);
+    assert.equal(cancel.hidden, true);
+    assert.equal(cancel.style.display, "none");
+    const save = ui.findButton("Save performance report");
+    assert.equal(save.hidden, false);
+    assert.equal(save.style.display, "");
+    assert.equal(ui.spinner.style.display, "none");
+    assert.equal(ui.launcher.attributes["aria-busy"], "false");
+});
