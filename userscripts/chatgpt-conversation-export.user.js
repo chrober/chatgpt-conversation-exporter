@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Conversation Exporter
 // @namespace    https://github.com/chrober/chatgpt-conversation-exporter
-// @version      0.1.9
+// @version      0.1.10
 // @author       Christoph O'Bermair
 // @description  Export the current ChatGPT conversation as JSON.
 // @match        https://chatgpt.com/*
@@ -447,7 +447,7 @@ function createExportProfiler(options = {}) {
         const recordCount = pages.at(-1)?.cumulative_records ?? 0;
         return {
             profile_format: "chatgpt-export-performance-v1",
-            userscript_version: "0.1.9",
+            userscript_version: "0.1.10",
             created_at: startedAt,
             reported_at: new Date().toISOString(),
             completed,
@@ -660,8 +660,18 @@ if (typeof module !== "undefined" && module.exports) {
 // Greasemonkey/Tampermonkey UI adapter. Core embedded by build-userscript.js.
 // Do not run an export automatically when ChatGPT loads.
 (function installExportCommand() {
+    const BENCHMARK_MODES = Object.freeze({
+        stable: { label: "Reference — 1 turn / 250 ms", numTurns: 1, delay: 250 },
+        pace: { label: "Pacing test — 2 turns / 250 ms", numTurns: 2, delay: 250 },
+        fast: { label: "Fast (default) — 2 turns / 100 ms", numTurns: 2, delay: 100 },
+        experimental: { label: "Experimental — 3 turns / 100 ms", numTurns: 3, delay: 100 }
+    });
     const state = {
         session: null,
+        sessionMode: null,
+        mode: "fast",
+        modePanel: null,
+        modeSelect: null,
         controller: null,
         panel: null,
         profiler: null,
@@ -674,6 +684,74 @@ if (typeof module !== "undefined" && module.exports) {
 
     function currentUrl() {
         return window.location.origin + window.location.pathname;
+    }
+
+    function toggleModePanel() {
+        if (state.modePanel?.isConnected) {
+            state.modePanel.remove();
+            state.modePanel = null;
+            state.modeSelect = null;
+            return;
+        }
+        const root = document.createElement("aside");
+        root.id = "chatgpt-conversation-export-mode-panel";
+        root.setAttribute("aria-label", "Export performance mode");
+        Object.assign(root.style, {
+            position: "fixed", right: "18px", bottom: "68px",
+            zIndex: "2147483647", background: "#17202b",
+            color: "#f6f7f8", padding: "12px",
+            border: "1px solid #46505a", borderRadius: "8px",
+            boxShadow: "0 8px 30px rgba(0,0,0,.4)",
+            font: "12px/1.5 system-ui, sans-serif",
+            maxWidth: "min(310px, calc(100vw - 36px))"
+        });
+        const label = document.createElement("label");
+        label.textContent = "Export performance mode";
+        label.setAttribute("for", "chatgpt-conversation-export-mode");
+        label.style.display = "block";
+        label.style.marginBottom = "6px";
+        root.appendChild(label);
+        const select = document.createElement("select");
+        select.id = "chatgpt-conversation-export-mode";
+        select.setAttribute("aria-label", "Export performance mode");
+        Object.assign(select.style, {
+            width: "100%", font: "inherit", padding: "6px",
+            background: "#354152", color: "#fff",
+            border: "1px solid #8c99a8", borderRadius: "5px"
+        });
+        for (const [key, mode] of Object.entries(BENCHMARK_MODES)) {
+            const option = document.createElement("option");
+            option.value = key;
+            option.textContent = mode.label;
+            select.appendChild(option);
+        }
+        select.value = state.mode;
+        select.disabled = Boolean(state.controller);
+        select.addEventListener("change", () => {
+            if (state.controller || !BENCHMARK_MODES[select.value]) {
+                select.value = state.mode;
+                return;
+            }
+            state.mode = select.value;
+        });
+        root.appendChild(select);
+        const note = document.createElement("div");
+        note.textContent =
+            "Changing mode starts a fresh API export. The current tab keeps " +
+            "cached pages only while its mode is unchanged.";
+        Object.assign(note.style, {
+            color: "#c4cedb", marginTop: "8px", maxWidth: "285px"
+        });
+        root.appendChild(note);
+        document.body.appendChild(root);
+        state.modePanel = root;
+        state.modeSelect = select;
+    }
+
+    function hideModePanel() {
+        if (state.modePanel?.isConnected) state.modePanel.remove();
+        state.modePanel = null;
+        state.modeSelect = null;
     }
 
     function updateLauncherActivity() {
@@ -884,13 +962,16 @@ if (typeof module !== "undefined" && module.exports) {
 
         // SPA navigation: a new chat gets a distinct in-memory session.
         if (!state.session ||
-            state.session.conversationId !== current.conversationId) {
+            state.session.conversationId !== current.conversationId ||
+            state.sessionMode !== state.mode) {
             const profiler = createExportProfiler();
             state.profiler = profiler;
+            const mode = BENCHMARK_MODES[state.mode];
+            state.sessionMode = state.mode;
             state.session = createExportSession({
                 sourceUrl: current.sourceUrl,
-                numTurns: 2,
-                requestDelayMs: 100,
+                numTurns: mode.numTurns,
+                requestDelayMs: mode.delay,
                 fetchImpl: profiler.instrumentFetch(
                     (...args) => fetch(...args),
                     () => state.session?.snapshot().pages + 1 || 1
@@ -898,6 +979,7 @@ if (typeof module !== "undefined" && module.exports) {
             });
         }
 
+        hideModePanel();
         const session = state.session;
         state.controller = new AbortController();
         state.exportSettled = false;
@@ -1049,6 +1131,24 @@ if (typeof module !== "undefined" && module.exports) {
         updateLauncherActivity();
         button.addEventListener("click", () => { void startExport(); });
         document.body.appendChild(button);
+
+        // Separate small settings button keeps single-click export unchanged.
+        const settings = document.createElement("button");
+        settings.id = "chatgpt-conversation-export-mode-button";
+        settings.type = "button";
+        settings.textContent = "Mode";
+        settings.title = "Choose benchmark settings for the next export";
+        settings.setAttribute("aria-label", settings.title);
+        Object.assign(settings.style, {
+            position: "fixed", bottom: "18px", right: "202px",
+            zIndex: "2147483646", padding: "8px 10px",
+            border: "1px solid #8c99a8", borderRadius: "8px",
+            color: "#fff", background: "#253144",
+            cursor: "pointer", font: "12px/1.3 system-ui, sans-serif",
+            boxShadow: "0 3px 12px rgba(0,0,0,.25)"
+        });
+        settings.addEventListener("click", toggleModePanel);
+        document.body.appendChild(settings);
     }
 
     if (typeof document !== "undefined") {
