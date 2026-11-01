@@ -1,106 +1,99 @@
 # ChatGPT Conversation Exporter
 
-Ein eigenständiges **Greasemonkey-/Tampermonkey-Userscript** zum lokalen JSON-Export **einer einzelnen, aktuell geöffneten Original-ChatGPT-Unterhaltung**. Kein Gesamtexport des Kontos und kein automatischer Export bei jedem Seitenaufruf.
+A standalone **Tampermonkey/Greasemonkey userscript** that exports **one currently open, original ChatGPT conversation** as JSON. It is not an account-wide export, and it never starts an export automatically on page load.
 
-> **Status: Entwicklungsfassung 0.2.2 auf Feature-Branch.** Die zugrundeliegende Browser-Konsolen-Version wurde praktisch bestätigt. Die Tampermonkey-Version wurde unter Firefox praktisch erprobt. Das neue transparente, automatisch farbangepasste SVG-Zahnrad benötigt noch eine Firefox-/Tampermonkey-Sichtprüfung.
+> **Version 0.2.3.** The exporter and its pagination flow have been used with Firefox and Tampermonkey. Automated tests cover the current implementation; verify new UI styling and browser-specific download behavior in your own browser. The internal ChatGPT API is undocumented and may change without notice.
 
-## Installation und Bedienung
+## Install and use
 
-1. Für Firefox **Tampermonkey** (oder Greasemonkey 4.11+) installieren.
-2. Die Datei [`userscripts/chatgpt-conversation-export.user.js`](userscripts/chatgpt-conversation-export.user.js) aus diesem Branch installieren. [Direktlink zur Raw-Datei](https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/refs/heads/feat/greasemonkey-single-conversation-export/userscripts/chatgpt-conversation-export.user.js). **Version 0.2.2:** Eine bereits installierte ältere Version aktualisieren oder ersetzen, nicht zusätzlich als zweites aktives Script installieren.
-3. Auf `https://chatgpt.com` anmelden und **einen Original-Chat** öffnen: `/c/<uuid>` oder `/g/.../c/<uuid>`. Nach Installation/Update den Chat-Tab **neu laden**, um das neue Script auszuführen.
-4. Unten rechts auf **„Export chat as JSON“** klicken. Der Button ist bewusst kompakt; das **Zahnrad ⚙ unmittelbar rechts** öffnet **Export performance**. Dort gibt es ausschließlich die beiden Zahlenfelder **Turns** (Anzahl logischer Gesprächs-Turns pro API-Abfrage) und **Delay** (Pause zwischen paginierten Abfragen in Millisekunden). Standardwerte: **3 Turns / 100 ms**. Änderungen gelten für den nächsten Export und zunächst nur für die aktuelle Tab-/Browser-Sitzung. **Save** speichert sie dauerhaft; **Load defaults** lädt 3/100 zunächst nur für die Sitzung, dauerhaft erst nach **Save**. Alternativ bietet der Userscript-Manager den Menüpunkt **„Export current chat as JSON“**, sofern unterstützt.
-5. Das Statusfenster oberhalb des Export-Buttons zeigt **„API pages“** und **„message records“** an. **Cancel** unterbricht den Abruf, **Export chat as JSON** setzt ihn im selben Tab fort. **Close schließt ausschließlich das Statusfenster – nicht den laufenden Export.** Es bleibt auch bei späteren Fortschrittsmeldungen geschlossen; der Activity-Indicator mit drei animierten Punkten (**Dots**) im Hauptbutton zeigt weiterhin die Aktivität an. Während eines laufenden Exports öffnet ein Klick auf **Export chat as JSON** das Statusfenster erneut, ohne einen zweiten Export zu starten; **Cancel** ist dabei weiterhin aktiv. Während des Exports erscheint ausschließlich **Cancel**; nach Erfolg, Fehler oder Abbruch wird dieser Button ausgeblendet und an seiner Stelle **Save performance report** angezeigt. **Close** bleibt durchgehend sichtbar.
-6. Nach bestätigtem Paginierungsende wird standardmäßig ein **ZIP-Archiv** `chatgpt-conversation-<uuid>.zip` heruntergeladen, das eine vollständige `chatgpt-conversation-<uuid>.json` enthält. Bei fehlender oder gescheiterter browsernativer ZIP-Unterstützung folgt ein ausdrücklich gekennzeichneter **unkomprimierter `.json`-Fallback**. Die Datei nach dem Download kontrollieren.
+1. Install **Tampermonkey** (recommended) or **Greasemonkey 4.11+** in Firefox.
+2. [Install the userscript from \`main\`](https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/main/userscripts/chatgpt-conversation-export.user.js), or open [the generated userscript](userscripts/chatgpt-conversation-export.user.js) and install it through your userscript manager. **Update/replace** an earlier installation; do not enable duplicate copies.
+3. Sign in at [chatgpt.com](https://chatgpt.com) and open an **original conversation** with a URL such as \`/c/<uuid>\` or \`/g/.../c/<uuid>\`. Reload the tab after installation or update.
+4. Click the compact **Export chat as JSON** button at the bottom right. The transparent gear immediately to its right opens **Export performance**, containing only **Turns** and **Delay**. Defaults are **3 turns / 100 ms**.
+5. The progress panel shows counts of **API pages** and **message records**. **Cancel** stops the active run; clicking Export again resumes validated pages in the same tab. **Close** dismisses only the panel, **not** the export; animated **Dots** in the launcher remain visible while the export runs. Click the launcher again to reopen the panel without starting a duplicate request.
+6. After the API confirms the end of pagination, the browser downloads a ZIP containing one JSON file. If ZIP compression is unavailable, the exporter explicitly downloads the original uncompressed \`.json\` instead. Check the downloaded file.
 
-Das Repository ist inzwischen **öffentlich**. Die automatische Aktualisierung über `@downloadURL`/`@updateURL` ist bis zur ersten stabilen Version noch nicht konfiguriert; aktualisiere die Entwicklungsfassung bei Bedarf über den Raw-Link.
+An optional userscript-manager menu action, **Export current chat as JSON**, starts the same operation where supported.
 
-Ausführliche Hinweise: [Installation / manueller Smoke-Test](docs/installation-and-validation.md).
+The completion message includes **active duration rounded to whole seconds**, **uncompressed JSON size**, **downloaded ZIP/JSON size**, API-page count, record count, and the filename. Example (illustrative values):
 
-## Lokaler Inhaltsvergleich (empfohlen vor weiteren Optimierungen)
-
-Die Performance-Reports beweisen eine **identische Datensatzanzahl**, aber keine Identität der eigentlichen Nachrichten. Deshalb enthält dieses Repository nun einen **rein lokalen Vergleich** für die beiden heruntergeladenen Exportdateien (`.zip` oder `.json`). Node.js 22+ wird benötigt:
-
-```powershell
-node .\scripts\compare-exports.js "C:\Pfad\baseline.zip" "C:\Pfad\fast.zip"
-```
-
-Dabei werden **vollständige Nachrichtenobjekte**, Nachrichten-IDs und deren Reihenfolge überprüft. Die unterschiedlichen Seitenmetadaten, Exportzeitstempel und JSON-Objekt-Schlüsselreihenfolgen werden bewusst nicht als Inhaltsabweichung gezählt. Bei ZIP wird die CRC32-Prüfsumme kontrolliert. Das Ergebnis zeigt lediglich **Anzahlen und einen Status** (`identical` oder `different`); Nachrichteninhalte und IDs werden weder ausgegeben noch an einen Dienst übertragen.
-
-Exitcodes: `0` = identisch, `1` = Unterschied, `2` = ungültige Datei/Fehler. Bei abweichenden Nachrichteninhalten lohnt sich eine genaue Prüfung, ob sich die Unterhaltung zwischen den Exporten geändert hat.
-
-## Performance-Einstellungen in Version 0.2.2
-
-Das **transparente SVG-Zahnrad direkt rechts neben dem Export-Button** öffnet ein kompaktes Fenster mit genau zwei Einstellungen. Es hat weder Hintergrund noch Rand oder Schatten. Die Vordergrundfarbe übernimmt es über die aktuellen ChatGPT-CSS-Textfarben (`--text-primary`, ersatzweise `--token-text-primary` oder die geerbte Textfarbe), sodass es mit hellem/dunklem Design mitwechselt. Die grafische Form hat keine Speichen und wird unabhängig von Emoji-Schriftarten dargestellt:
-
-| Feld | Bedeutung | Standard | Zulässige Werte |
-| --- | --- | ---: | ---: |
-| **Turns** | Anzahl logischer Gesprächs-Turns pro API-Seitenabruf; größere Batches können die Anfrageanzahl senken, aber größere Antworten und Timeouts verursachen | **3** | Ganze Zahl 1–1000 |
-| **Delay** | Pause in Millisekunden zwischen API-Seiten; kürzere Pausen können schneller sein, aber Backend-Limits beanspruchen | **100 ms** | Ganze Zahl 0–60000 ms |
-
-Es gibt **keine Presets oder Dropdowns** mehr. Bereits bei der Eingabe eines gültigen Werts gilt er **für den nächsten Export**. Die Einstellung wird zunächst in `sessionStorage` des ChatGPT-Tabs gehalten: Sie übersteht ein Neuladen, wird aber nicht automatisch als dauerhafte Nutzerpräferenz übernommen. Ist `sessionStorage` eingeschränkt, gilt der Wert nur bis zum Schließen der Seite.
-
-- **Save** schreibt die zwei Werte explizit in den Tampermonkey-/Greasemonkey-Speicher (`GM_setValue`/`GM.setValue`). Beim nächsten Browser- oder Tab-Neustart werden gespeicherte Werte wiederhergestellt.
-- **Load defaults** setzt die Felder auf **3 / 100** und verwendet sie ab dem nächsten Export **nur in dieser Sitzung**. Erst ein anschließendes **Save** ersetzt auch dauerhaft die gespeicherten Werte. Ein unbeabsichtigtes Überschreiben wird so vermieden.
-- Einstellungen der Version 0.1.12 werden beim ersten Start **lesend übernommen** (einschließlich des bisherigen Custom-Modus), aber nicht ohne ausdrückliches **Save** in den neuen Speicherschlüssel migriert.
-- Während eines laufenden Exports sind beide Eingaben und Aktionen gesperrt. Eine echte Parameteränderung startet beim nächsten Export eine frische API-Session; bei unveränderten Werten bleiben Resume und erneuter ZIP-Download möglich.
-
-Die hohe Turns-Obergrenze von 1000 ist eine Schutzschranke gegen offensichtlich fehlerhafte Eingaben, **keine geprüfte optimale Batchgröße**. Der bisher nachgewiesene Vorteil betrifft lediglich 1–3 Turns. Nutzer sollten große Batches vorsichtig ausprobieren.
-
-## Anzeige nach erfolgreichem Export
-
-Die Abschlussmeldung zeigt zusätzlich zu Seitenzahl und Datensatzanzahl jetzt **die gesamte aktive Exportdauer** (z. B. `2m 38.8s`), die **unkomprimierte JSON-Größe** und die **heruntergeladene Dateigröße** in MiB. Beispiel:
-
-```text
+\`\`\`text
 Export complete – ZIP download started.
 26 API pages, 2795 unique message records;
-Duration: 2m 38.8s (active); JSON uncompressed: 32.85 MiB;
+Duration: 2m 23s (active); JSON uncompressed: 32.85 MiB;
 ZIP 3.56 MiB – chatgpt-conversation-<id>.zip
-```
+\`\`\`
 
-Die Dauer entspricht der Berechnungsweise von `summary.active_run_ms` im Performance-Report: Bei unterbrochenen und fortgesetzten Exporten werden nur die aktiven Abschnitte addiert, nicht die Zeit zwischen ihnen. Die angezeigte Zeit wird beim Download-Start ermittelt und kann im später gespeicherten Report geringfügig größer sein. Ohne ZIP-Unterstützung zeigt die Meldung statt **ZIP** die tatsächliche heruntergeladene **JSON**-Größe. Die Zahlen im Beispiel sind illustrativ.
+Active duration sums time spent exporting across resumed attempts but **does not include time paused between attempts**. It is measured as the download starts, so a later performance report can show a slightly longer active duration. During retrieval the progress message simply reports page and record counts; there is no separate "checking for older pages" phase.
 
-## Eigenschaften
+See [installation, validation, and troubleshooting](docs/installation-and-validation.md).
 
-- Tampermonkey-/Greasemonkey-Menüeintrag **und** sichtbarer Export-Button **unten rechts** mit **Dots** (drei versetzt animierte Punkte) während aller aktiven Exportphasen (API-Abruf, Retries, ZIP-Komprimierung), unabhängig vom geöffneten/geschlossenen Fortschrittsfenster
-- Automatische Ermittlung der aktuellen Chat-URL im **Moment des Klicks**
-- Authentifizierter Abruf über die bestehende ChatGPT-Sitzung
-- **Sitzungsbezogener Performance-Modus mit explizitem Save:** standardmäßig Cursor-Paginierung mit `num_turns=3` und **100 ms** Pause (Referenz bisher `num_turns=1`, 250 ms); bei zwei aufeinanderfolgenden temporären Backend-/Netzwerkfehlern einer Seite automatischer Rückfall auf `num_turns=1`. Kein Parallel-Request, weiterhin `include_has_versions=true` und `before=start_cursor`.
-- Retry bei HTTP 429/500/502/503/504, Abbruch, Wiederaufnahme ohne erneutes Laden bereits validierter Seiten
-- Verhinderung von Cursor-Schleifen; Validierung aller Seiten, Deduplizierung und Audit im JSON
-- Englische Statusmeldungen mit **API pages** (= paginierte HTTP-Antworten, keine Browserseiten) und **message records** (= technische Nachrichtendatensätze)
-- **Cancel** während des Exports; anschließend wird der Button **durch „Save performance report“ ersetzt** (Erfolg, Fehler, Abbruch). **Close** bleibt unverändert.
-- Nach **Close** und erneutem Export eines bereits vollständig geladenen Chats wird kein alter ausgegrauter Cancel-Button angezeigt. Das ZIP kann aus den im Tab gespeicherten Daten erneut erstellt werden; für einen neuen Performance-Vergleich **ChatGPT-Tab neu laden**, damit die API wirklich erneut abgefragt wird.
-- Optionaler **„Save performance report“**-Download **nur im Endzustand** (erfolgreich, Fehler, abgebrochen); ohne Chat-Inhalte/IDs: HTTP-Status, Retries, Datensätze und Zeiten pro API-Seite, JSON-Parsing, ZIP-Komprimierungsdauer und Dateigrößen.
-- Automatischer ZIP-Download mit **nativem `CompressionStream('deflate-raw')`** und einem standardkonformen Einzeldatei-Archiv (UTF-8, CRC32, DEFLATE), ohne Bibliotheken; transparenter `.json`-Fallback, wenn ZIP nicht erzeugt werden kann.
-- **Cancel** ist nur während eines laufenden Exports aktiv; danach **disabled und sichtbar grau**. Wird das Fenster während des Exports nach **Close** erneut geöffnet, ist Cancel wieder korrekt aktiviert. Zwei UI-Regressionstests schützen das Schließen und Wiederöffnen.
-- Keine Laufzeitbibliotheken, keine externen `@require`-Skripte
+## Performance settings and persistence
 
-## Entwicklung
+The gear is an accessible, borderless SVG icon using the current ChatGPT text color (\`currentColor\` and CSS theme tokens); it has **no background, border, shadow, dropdown, or preset selection**.
 
-Voraussetzung: Node.js 22 oder höher. Keine zusätzlichen npm-Abhängigkeiten.
+| Setting | Meaning | Default | Supported range |
+| --- | --- | ---: | ---: |
+| **Turns** | Logical conversation turns requested per paginated API call; larger values may reduce requests but increase response size and timeout risk | **3** | Integer **1–1000** |
+| **Delay (ms)** | Wait between consecutive API-page requests | **100** | Integer **0–60000** |
 
-```bash
+Changing a valid value updates the **next** export immediately, but is **session-only** until explicitly saved. The current tab uses \`sessionStorage\` (normally preserved across reloads). If access to session storage is restricted, the values remain in memory until the page closes.
+
+- **Save:** persist both values through the userscript manager (\`GM_setValue\` / \`GM.setValue\`). Saved values are restored in future sessions.
+- **Load defaults:** use **3 / 100** for the current session **without overwriting** saved values. To make these defaults permanent, click **Save** afterward.
+- Previous v0.1.12 settings are read as a migration fallback, without silently rewriting the durable settings.
+- Settings cannot change during an active export. Changing them between exports starts a new API session, while identical settings preserve in-tab resume and ZIP re-download behavior.
+
+**Important:** Values greater than 3 turns are technically supported but have **not been empirically validated** for reliability. The 1000-turn upper bound is a guardrail against accidental extreme input, not a performance recommendation. Large batches and very short delays may trigger rate limits or backend timeouts.
+
+To measure a fresh HTTP export with the *same* settings, **reload the ChatGPT tab** first. Otherwise a completed in-memory session can generate another ZIP without fetching messages again.
+
+## Local, privacy-preserving content comparison
+
+The performance report records counts and timings, **not message content or IDs**. For a stronger correctness check, use the local comparison CLI with **Node.js 22+**:
+
+\`\`\`powershell
+node .\scripts\compare-exports.js "C:\path\baseline.zip" "C:\path\candidate.zip"
+\`\`\`
+
+The comparator accepts \`.zip\` and \`.json\`, verifies ZIP CRC32, and compares message IDs, **complete canonicalized message objects**, and their order. It intentionally disregards page-layout metadata and export timestamps. It does **not** upload, log, or print message IDs or contents. Exit codes: \`0\` identical; \`1\` different; \`2\` input/format error.
+
+For the measured 5,329-record conversation, the user independently confirmed **identical IDs, full message objects, and order** across **Fast (2 turns / 100 ms)**, **Pacing (2 / 250)**, and **Experimental (3 / 100)** exports. These results support the current **3 / 100** default; they do not prove optimal behavior on every conversation.
+
+## Export behavior
+
+- Uses the existing signed-in ChatGPT browser session and validates original conversation URLs.
+- Requests the undocumented paginated message endpoint **sequentially** using \`before=<page_info.start_cursor>\` and \`include_has_versions=true\`, until \`has_previous_page === false\`.
+- Rejects malformed pages, repeated/missing cursors, and conflicting duplicate IDs. Only identical duplicate messages are deduplicated.
+- Retries temporary HTTP 429/500/502/503/504 and network failures. Two repeated retryable 5xx/network failures on the same page trigger a fallback to \`num_turns=1\`; 429 alone does not reduce batch size.
+- Preserves validated pages **in the current tab's memory** after cancellation/error, enabling in-tab resume. Reloading the page clears this export cache.
+- Generates one ZIP archive with UTF-8, CRC32, and native DEFLATE (\`CompressionStream('deflate-raw')\`), without runtime libraries; explicitly falls back to plain JSON when required.
+- Shows **Cancel only while exporting**, and **Save performance report** after an export succeeds, fails, or is cancelled. The performance report is downloaded **only after an explicit click**. Closing the progress panel does not stop the dots or active export.
+- Never retrieves attachment files separately or claims to have exported all historic conversation branches/versions.
+
+For implementation details and privacy boundaries, see [architecture and limitations](docs/architecture-and-limitations.md). For anonymized historical measurements and their interpretation, see [performance baseline](docs/performance-baseline-2026-11-01.md).
+
+## Development
+
+Requires **Node.js 22 or later**, with no third-party npm dependencies:
+
+\`\`\`bash
 npm run build
 npm run check
-```
+\`\`\`
 
-Die **Quellen** liegen in `src/exporter-core.js` (testbare API-/Paginierungslogik), `src/profiling.js` (inhaltfreies Performance-Profiling), `src/compression.js` (ZIP-Komprimierung und CRC32) und `src/userscript-entry.js` (Userscript-Manager-Menü, Export-Button, Statusfenster, Download). `scripts/build-userscript.js` generiert daraus deterministisch `userscripts/chatgpt-conversation-export.user.js`. Bitte **nicht nur die generierte Datei** bearbeiten. Die CI überprüft Syntax, Bundle-Gleichheit und Node-basierte Tests und vermeidet Push+PR-Doppelruns: Push nur auf `main`, PR auf Feature-Branches. Reine Dokumentationsänderungen lösen keine CI aus.
+Source modules: \`src/exporter-core.js\` (pagination/integrity), \`src/profiling.js\` (content-free metrics), \`src/compression.js\` (ZIP), \`src/userscript-entry.js\` (browser UI), and \`scripts/compare-exports.js\` (offline integrity check).
 
-Architektur und Grenzen: [Technische Dokumentation](docs/architecture-and-limitations.md). Die anonymisierten [Performance-Baselines und die Fast-Modus-Hypothese](docs/performance-baseline-2026-11-01.md) beschreiben die bisherigen Engpässe und den geplanten A/B-Test.
+\`scripts/build-userscript.js\` deterministically produces \`userscripts/chatgpt-conversation-export.user.js\`. **Edit the sources and rebuild; do not edit only the generated bundle.** GitHub Actions checks JavaScript syntax, generated-bundle equality, and Node tests. CI uses pull-request events for feature branches and push events for \`main\`; documentation-only changes do not trigger a build.
 
-## Herkunft und Evidenz
+## Security and limitations
 
-Die Logik basiert auf einem mehrfach erfolgreich getesteten JavaScript-Konsolenexport aus dem Lyrion-Projekt. Am 31. Oktober 2026 lieferte die URL-basierte V2-Version bei einem langen Original-Chat **64 Seiten, 4.970 eindeutige Datensätze, keine Duplikate und 55,35 MiB**; der End-Cursor meldete `has_previous_page=false`. Die automatische URL-Ermittlung über `window.location.origin + window.location.pathname` wurde ebenfalls bestätigt. **Diese Zahlen gelten für den ursprünglichen Konsolenexport**, nicht für andere Unterhaltungen. Der Tampermonkey-Exporter wurde inzwischen separat im Firefox erfolgreich getestet. Private Chat-IDs, Prompts und JSON-Exporte werden nicht ins Repository übernommen.
+**This tool calls undocumented ChatGPT endpoints** which can change without warning. It exports only original conversations accessible to the signed-in user, **not** \`/share/...\` links. The JSON may contain sensitive messages, internal tool records, personal data, filesystem paths, and references. \`pagination_verified: true\` means the API reported the end of the fetched older-page chain—not necessarily every historical version, branch, or attachment.
 
-## Sicherheit und Einschränkungen
+The exporter uses same-origin ChatGPT requests and creates a local Blob download. It does not transmit conversation data to GitHub or other third parties. Authentication tokens are not written to the export. **Never commit raw conversation exports, tokens, or user-specific performance reports**, and review any exported files before sharing. Performance reports omit IDs and content but include timestamps and usage timings.
 
-Die ChatGPT-Endpunkte sind intern und undokumentiert; Änderungen können das Userscript jederzeit unbrauchbar machen. Es funktioniert nur für **berechtigt zugängliche Original-Chats**, nicht für `/share/...`-Links. Der JSON-Export enthält unter Umständen interne Tool-Datensätze, personenbezogene Informationen, Pfade, Referenzen oder vertrauliche Inhalte. Anhänge werden **nicht separat heruntergeladen**. `pagination_verified=true` bestätigt nur das von der API gemeldete Ende der Seitenfolge, nicht sämtliche Versionen oder Branches.
+For the official account-wide export, use **ChatGPT → Settings → Data Controls → Export data**.
 
-Das Userscript ruft nur relative Endpunkte von `chatgpt.com` auf und lädt ein lokales ZIP mit unverändertem JSON-Inhalt (oder bei fehlender Komprimierung das ursprüngliche JSON) herunter; es sendet keine Chat-Daten an GitHub oder andere Dienste. Der Sitzungstoken wird für authentifizierte Anfragen verwendet und nicht in die JSON geschrieben. **Exportdateien keinesfalls committen oder ungeprüft weitergeben.** Der separate Performance-Bericht wird nur nach Klick auf **Save performance report** gespeichert und enthält keine Chat-Inhalte, Conversation-IDs oder Cursor. Er enthält jedoch Zeitstempel und Nutzungs-/Leistungsdaten; auch diesen Bericht vor öffentlicher Weitergabe prüfen.
+## License
 
-Für den offiziell unterstützten Gesamtexport: ChatGPT → Einstellungen → Datenkontrollen → Daten exportieren.
-
-## Lizenz
-
-MIT – siehe [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE).
