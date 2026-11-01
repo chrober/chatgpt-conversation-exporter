@@ -7,7 +7,9 @@
         session: null,
         controller: null,
         panel: null,
-        profiler: null
+        profiler: null,
+        statusText: "Ready.",
+        detailText: ""
     };
 
     function currentUrl() {
@@ -58,12 +60,13 @@
         const status = document.createElement("div");
         status.setAttribute("role", "status");
         status.setAttribute("aria-live", "polite");
-        status.textContent = "Ready.";
+        status.textContent = state.statusText;
         root.appendChild(status);
 
         const progress = document.createElement("div");
         progress.style.marginTop = "8px";
         progress.style.color = "#c4cedb";
+        progress.textContent = state.detailText;
         root.appendChild(progress);
 
         const actions = document.createElement("div");
@@ -103,7 +106,8 @@
             root.remove();
             state.panel = null;
         });
-        setCancelEnabled(cancel, false);
+        setCancelEnabled(cancel, Boolean(state.controller &&
+            !state.controller.signal.aborted));
         saveProfile.disabled = !state.profiler?.hasSamples();
         root.appendChild(actions);
         document.body.appendChild(root);
@@ -112,10 +116,17 @@
     }
 
     function report(message, detail = "") {
-        const panel = showPanel();
-        panel.status.textContent = message;
-        panel.progress.textContent = detail;
-        panel.saveProfile.disabled = !state.profiler?.hasSamples();
+        // Keep progress up to date even while the panel is dismissed.
+        // Close only hides the view; it must never abort the active export
+        // or allow the next progress event to recreate the panel.
+        state.statusText = message;
+        state.detailText = detail;
+        const panel = state.panel?.root?.isConnected ? state.panel : null;
+        if (panel) {
+            panel.status.textContent = message;
+            panel.progress.textContent = detail;
+            panel.saveProfile.disabled = !state.profiler?.hasSamples();
+        }
         console.info("[ChatGPT Conversation Exporter]", message, detail);
     }
 
@@ -158,10 +169,14 @@
 
     async function startExport() {
         if (state.controller) {
-            report("An export is already running.");
+            // Reopen the existing progress view; do not start another fetch
+            // or overwrite the latest progress status.
+            showPanel();
             return;
         }
 
+        // All panel openings require an explicit user action.
+        showPanel();
         let current;
         try {
             current = parseConversationUrl(currentUrl());
