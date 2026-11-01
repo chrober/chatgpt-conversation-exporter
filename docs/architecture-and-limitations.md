@@ -110,7 +110,7 @@ This is an **illustrative schema**, not a realistic completed export. `page_meta
 
 `pagination_verified: true` means **the backend reported the end of the fetched older-page chain**. It does not prove that all historical versions, alternative branches, or external attachments were captured. `attachments_fetched_separately` is always `false`.
 
-## Optional attachments (experimental v0.3.0-beta.3)
+## Optional attachments (experimental v0.3.0-beta.4)
 
 The attachment selection is rendered as a **custom 18×18 pixel visual checkbox** using a native `button` with `role="checkbox"`, a dynamic `aria-checked` attribute and a hand-drawn SVG tick. No browser-native checkbox appearance is used, avoiding style resets by ChatGPT's global CSS. Tab and Space/Enter retain keyboard accessibility.
 
@@ -142,6 +142,14 @@ attachments/002-agent-report.csv
 Missing files are absent from `attachments/`, but are listed under `manifest.items[].status="failed"` with a sanitized error category. The manifest includes discovered/attempted/downloaded/failed/skipped counts and total retrieved bytes. ZIP packaging supports both DEFLATE and STORED entries without needing additional libraries. If multi-entry packaging fails, the exporter warns and uses its existing single-conversation ZIP/JSON path; it does **not** silently claim attachments were packaged.
 
 The local comparator now accepts attachment ZIPs but compares **only the root conversation JSON**, ignoring attachment binaries. It verifies the root JSON CRC32 and structural ZIP entry boundaries. This preserves the intended message-ID and full-message equality audit without making binary attachment equality claims.
+
+### Read-only diagnostics for inaccessible uploads (beta.4)
+
+When a ChatGPT upload is seen only as an `id` property in attachment metadata, discovery identifies it as `source: "metadata-id"`. This field alone is insufficient to establish the underlying file service. In a real test, an experimental `files-by-id` request returned **HTTP 403**. Continuing blindly to additional routes would hide explicit access-denied responses, so resolver failover remains restricted to **404/410**.
+
+The manifest now records a whitelisted set of `reference_keys` (field *names*, not values), a coarse `conversation_scope` hint based only on the original URL, `auth_mode` (whether the script had a Bearer token), and `resolver_http_statuses` containing route labels plus HTTP status numbers. This metadata helps identify whether the wrong reference type or authentication context is responsible without saving signed URLs, response bodies, project IDs or credentials.
+
+Further changes to authentication, account-specific headers or endpoint routing require a **successful UI-initiated download request** for the same file as evidence. Some third-party ChatGPT exporters report that a `chatgpt-account-id` header or `gizmo_id` parameter is required for certain Team/Project files; this is not proof that either is appropriate for a regular user attachment. The script must not fabricate context or bypass an access-denied response.
 
 ## ZIP packaging
 
