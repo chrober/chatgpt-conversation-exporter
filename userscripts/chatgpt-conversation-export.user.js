@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Conversation Exporter
 // @namespace    https://github.com/chrober/chatgpt-conversation-exporter
-// @version      0.2.3
+// @version      0.3.0-beta.1
 // @author       Christoph O'Bermair
 // @description  Export the current ChatGPT conversation as JSON.
 // @match        https://chatgpt.com/*
@@ -461,7 +461,7 @@ function createExportProfiler(options = {}) {
         const recordCount = pages.at(-1)?.cumulative_records ?? 0;
         return {
             profile_format: "chatgpt-export-performance-v1",
-            userscript_version: "0.2.3",
+            userscript_version: "0.3.0-beta.1",
             created_at: startedAt,
             reported_at: new Date().toISOString(),
             completed,
@@ -665,8 +665,378 @@ async function compressJsonAsZipOrPlain(json, fileName, options = {}) {
     }
 }
 
+
+/**
+ * Multi-entry ZIP32 for opt-in attachments. Unlike the legacy single-entry
+ * exporter, this always creates a ZIP: when DEFLATE is unavailable entries
+ * are stored without compression rather than dropping attachment files.
+ */
+async function compressFilesToZip(entries, options = {}) {
+    if (!Array.isArray(entries) || !entries.length || entries.length > 1000) {
+        throw new Error("ZIP requires 1–1000 entries.");
+    }
+    const compression = Object.prototype.hasOwnProperty.call(options, "CompressionStream") ?
+        options.CompressionStream :
+        (typeof CompressionStream !== "undefined" ? CompressionStream : null);
+    const responseFactory = Object.prototype.hasOwnProperty.call(options, "Response") ?
+        options.Response :
+        (typeof Response !== "undefined" ? Response : null);
+    const now = options.now ?? (() => performance.now());
+    const started = now();
+    const utf8 = new TextEncoder();
+    const U32 = 0xffffffff, locals = [], centrals = [], seen = new Set();
+    let offset = 0;
+    for (const entry of entries) {
+        const name = entry.name;
+        if (typeof name !== "string" || !name ||
+            name.startsWith("/") || name.includes("\\") ||
+            name.split("/").some(x => !x || x === ".." || x === ".") ||
+            seen.has(name)) {
+            throw new Error("Unsafe or duplicate ZIP filename.");
+        }
+        seen.add(name);
+        const nameBytes = utf8.encode(name);
+        if (nameBytes.length > 0xffff) throw new Error("ZIP filename too long.");
+        const raw = typeof entry.bytes === "string" ? utf8.encode(entry.bytes) :
+            entry.bytes instanceof Uint8Array ? entry.bytes : null;
+        if (!raw || raw.byteLength > U32) {
+            throw new Error("ZIP entry is not a supported byte sequence.");
+        }
+        let compressed = raw, method = 0;
+        // Known pre-compressed formats gain little and avoid extra CPU/RAM.
+        const precompressed = /\.(?:png|jpe?g|webp|gif|mp[34]|zip|gz|7z|pdf)$/i.test(name);
+        if (compression && responseFactory && !precompressed && raw.byteLength) {
+            try {
+                const stream = new Blob([raw]).stream()
+                    .pipeThrough(new compression("deflate-raw"));
+                compressed = new Uint8Array(
+                    await new responseFactory(stream).arrayBuffer());
+                method = 8;
+            } catch {
+                compressed = raw;
+                method = 0;
+            }
+        }
+        if (compressed.byteLength > U32) throw new Error("ZIP entry exceeds ZIP32.");
+        const local = new Uint8Array(30 + nameBytes.length);
+        const lh = new DataView(local.buffer);
+        lh.setUint32(0, 0x04034b50, true);
+        lh.setUint16(4, 20, true);
+        lh.setUint16(6, 0x0800, true);
+        lh.setUint16(8, method, true);
+        lh.setUint16(12, 33, true);
+        lh.setUint32(14, crc32(raw), true);
+        lh.setUint32(18, compressed.byteLength, true);
+        lh.setUint32(22, raw.byteLength, true);
+        lh.setUint16(26, nameBytes.length, true);
+        local.set(nameBytes, 30);
+
+        const central = new Uint8Array(46 + nameBytes.length);
+        const ch = new DataView(central.buffer);
+        ch.setUint32(0, 0x02014b50, true);
+        ch.setUint16(4, 20, true);
+        ch.setUint16(6, 0x0800, true);
+        ch.setUint16(8, method, true);
+        ch.setUint16(12, 33, true);
+        ch.setUint32(16, crc32(raw), true);
+        ch.setUint32(20, compressed.byteLength, true);
+        ch.setUint32(24, raw.byteLength, true);
+        ch.setUint16(28, nameBytes.length, true);
+        ch.setUint32(42, offset, true);
+        central.set(nameBytes, 46);
+        locals.push(local, compressed);
+        centrals.push(central);
+        offset += local.byteLength + compressed.byteLength;
+        if (offset > U32) throw new Error("ZIP32 offset limit exceeded.");
+    }
+    const centralSize = centrals.reduce((n, x) => n + x.byteLength, 0);
+    if (offset + centralSize + 22 > U32) {
+        throw new Error("ZIP32 archive limit exceeded.");
+    }
+    const end = new Uint8Array(22);
+    const e = new DataView(end.buffer);
+    e.setUint32(0, 0x06054b50, true);
+    e.setUint16(8, entries.length, true);
+    e.setUint16(10, entries.length, true);
+    e.setUint32(12, centralSize, true);
+    e.setUint32(16, offset, true);
+    const blob = new Blob([...locals, ...centrals, end], {
+        type: "application/zip"
+    });
+    return {
+        blob, archiveBytes: blob.size,
+        compressionMs: Math.round((now() - started) * 10) / 10
+    };
+}
+
 if (typeof module !== "undefined" && module.exports) {
-    module.exports = { crc32, encodeZipSingleFile, compressJsonAsZipOrPlain };
+    module.exports = { crc32, encodeZipSingleFile, compressJsonAsZipOrPlain, compressFilesToZip };
+}
+
+"use strict";
+
+/**
+ * Best-effort attachment discovery from already-exported conversation records.
+ * ChatGPT file endpoints are undocumented; never infer that a reference means
+ * the binary still exists. No URLs, signed tokens or raw messages are logged.
+ */
+const FILE_ID_PATTERN = /^file_[a-zA-Z0-9]{8,}$/;
+const MAX_ATTACHMENT_COUNT = 100;
+const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
+const MAX_TOTAL_ATTACHMENT_BYTES = 200 * 1024 * 1024;
+
+function fileIdFromPointer(value) {
+    if (typeof value !== "string") return null;
+    const match = /(?:^|[:/])((?:file_)[a-zA-Z0-9]{8,})(?:$|[/?#])/i.exec(value);
+    return match && FILE_ID_PATTERN.test(match[1]) ? match[1] : null;
+}
+
+function safeAttachmentName(value, fallback) {
+    const raw = typeof value === "string" ? value.split(/[\\/]/).at(-1) : "";
+    const clean = raw.replace(/[\x00-\x1f\x7f<>:"|?*]/g, "_")
+        .replace(/^[. ]+|[. ]+$/g, "").slice(0, 120);
+    return clean && clean !== "." && clean !== ".." ? clean : fallback;
+}
+
+function safeSandboxPath(value) {
+    if (typeof value !== "string") return null;
+    let path = value.replace(/^sandbox:/, "");
+    try { path = decodeURIComponent(path); } catch { return null; }
+    if (!path.startsWith("/mnt/data/") || path.length > 1024 ||
+        path.includes("\\") || path.includes("\x00") ||
+        path.split("/").some(part => part === "." || part === "..")) {
+        return null;
+    }
+    return path;
+}
+
+function discoverAttachments(messages, maxCount = MAX_ATTACHMENT_COUNT) {
+    const files = new Map();
+    function record(kind, identifier, name, message) {
+        if (!identifier) return;
+        const key = kind + ":" + identifier + (kind === "sandbox" ? ":" + message.id : "");
+        const fallback = kind === "file" ? identifier : "generated-file";
+        if (files.has(key)) {
+            const existing = files.get(key);
+            if (!existing.message_ids.includes(message.id)) {
+                existing.message_ids.push(message.id);
+            }
+            return;
+        }
+        files.set(key, {
+            kind, identifier,
+            file_name: safeAttachmentName(name, fallback),
+            message_ids: [message.id],
+            role: message.author?.role ?? "unknown"
+        });
+    }
+    function scan(obj, message, depth = 0, seen = new Set()) {
+        if (!obj || typeof obj !== "object" || seen.has(obj) || depth > 6) return;
+        seen.add(obj);
+        if (Array.isArray(obj)) {
+            for (const item of obj.slice(0, 1000)) scan(item, message, depth + 1, seen);
+            return;
+        }
+        const name = obj.name || obj.file_name || obj.filename ||
+            obj.original_filename || obj.display_name;
+        const candidates = [obj.file_id, obj.fileId, obj.asset_pointer,
+            obj.assetPointer, obj.id];
+        for (const candidate of candidates) {
+            const id = fileIdFromPointer(candidate);
+            if (id) record("file", id, name, message);
+        }
+        // Some generated file cards expose a sandbox path structurally.
+        for (const value of [obj.sandbox_path, obj.sandbox_url]) {
+            const path = safeSandboxPath(value);
+            if (path && message.author?.role === "assistant") {
+                record("sandbox", path, name || path, message);
+            }
+        }
+        for (const [key, value] of Object.entries(obj)) {
+            if (["parts", "attachments", "content", "asset",
+                "assets", "images", "files", "image", "metadata"].includes(key)) {
+                scan(value, message, depth + 1, seen);
+            }
+        }
+    }
+    for (const message of messages) {
+        if (!message || typeof message.id !== "string") continue;
+        scan(message.metadata?.attachments, message);
+        scan(message.attachments, message);
+        scan(message.content, message);
+        // Markdown sandbox links in assistant output; don't extract arbitrary
+        // URLs or file IDs from user prose or quoted examples.
+        if (message.author?.role === "assistant") {
+            for (const part of message.content?.parts ?? []) {
+                if (typeof part !== "string") continue;
+                const regex = /\[[^\]\n]{1,200}\]\((sandbox:\/mnt\/data\/[^\s)#]+)\)/g;
+                for (const match of part.matchAll(regex)) {
+                    const path = safeSandboxPath(match[1]);
+                    if (path) record("sandbox", path, path, message);
+                }
+            }
+        }
+    }
+    const found = [...files.values()];
+    return {
+        items: found.slice(0, maxCount),
+        skipped_count: Math.max(0, found.length - maxCount)
+    };
+}
+
+function allowedAttachmentURL(url) {
+    try {
+        const parsed = new URL(url, "https://chatgpt.com");
+        // Never follow untrusted download links to arbitrary third parties.
+        return parsed.origin === "https://chatgpt.com" &&
+            parsed.pathname.startsWith("/backend-api/");
+    } catch { return false; }
+}
+
+async function readBoundedResponse(response, limit) {
+    const declared = Number(response.headers?.get("content-length"));
+    if (Number.isFinite(declared) && declared > limit) {
+        throw new Error("file exceeds the per-file size limit");
+    }
+    if (response.headers?.get("content-type")?.includes("text/html")) {
+        throw new Error("download returned HTML instead of file bytes");
+    }
+    if (!response.body?.getReader) {
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        if (bytes.byteLength > limit) throw new Error("file exceeds the size limit");
+        return bytes;
+    }
+    const reader = response.body.getReader();
+    const chunks = [];
+    let size = 0;
+    try {
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            size += value.byteLength;
+            if (size > limit) throw new Error("file exceeds the size limit");
+            chunks.push(value);
+        }
+    } catch (error) {
+        await reader.cancel().catch(() => {});
+        throw error;
+    } finally {
+        reader.releaseLock();
+    }
+    const output = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) {
+        output.set(chunk, offset);
+        offset += chunk.byteLength;
+    }
+    return output;
+}
+
+async function collectAttachments(messages, conversationId, options = {}) {
+    const fetchImpl = options.fetchImpl ?? fetch;
+    const signal = options.signal;
+    const onProgress = options.onProgress ?? (() => {});
+    const maxBytes = options.maxBytes ?? MAX_ATTACHMENT_BYTES;
+    const totalLimit = options.totalBytes ?? MAX_TOTAL_ATTACHMENT_BYTES;
+    const discovery = discoverAttachments(messages);
+    const records = [], entries = [];
+    let totalBytes = 0;
+    for (const [index, item] of discovery.items.entries()) {
+        if (signal?.aborted) {
+            const error = new Error("Attachment download cancelled.");
+            error.name = "AbortError";
+            throw error;
+        }
+        onProgress(index + 1, discovery.items.length);
+        const itemRecord = {
+            kind: item.kind,
+            file_name: item.file_name,
+            message_ids: item.message_ids,
+            role: item.role,
+            status: "failed",
+            stored_path: null,
+            size_bytes: null,
+            error: null
+        };
+        try {
+            const endpoint = item.kind === "file" ?
+                "/backend-api/files/download/" +
+                    encodeURIComponent(item.identifier) + "?conversation_id=" +
+                    encodeURIComponent(conversationId) + "&inline=false" :
+                "/backend-api/conversation/" +
+                    encodeURIComponent(conversationId) + "/interpreter/download?" +
+                    new URLSearchParams({
+                        message_id: item.message_ids[0],
+                        sandbox_path: item.identifier
+                    });
+            const metaResponse = await fetchImpl(endpoint, {
+                credentials: "include", signal
+            });
+            if (!metaResponse.ok) {
+                throw new Error("metadata HTTP " + (metaResponse.status ?? "error"));
+            }
+            const meta = await metaResponse.json();
+            const url = meta.download_url || meta.url;
+            if (!url || !allowedAttachmentURL(url)) {
+                throw new Error("no supported same-origin download URL");
+            }
+            const response = await fetchImpl(url, {
+                credentials: "include", signal, redirect: "error"
+            });
+            if (!response.ok) {
+                throw new Error("file HTTP " + (response.status ?? "error"));
+            }
+            const bytes = await readBoundedResponse(response,
+                Math.min(maxBytes, totalLimit - totalBytes));
+            const filename = safeAttachmentName(
+                meta.file_name || item.file_name, item.file_name);
+            // Avoid overwriting duplicates, collisions, or path traversal.
+            const path = "attachments/" +
+                String(index + 1).padStart(3, "0") + "-" + filename;
+            entries.push({ name: path, bytes });
+            totalBytes += bytes.byteLength;
+            itemRecord.file_name = filename;
+            itemRecord.status = "downloaded";
+            itemRecord.stored_path = path;
+            itemRecord.size_bytes = bytes.byteLength;
+        } catch (error) {
+            if (signal?.aborted || error.name === "AbortError") throw error;
+            // Sanitized: never expose signed URLs, tokens, or arbitrary
+            // response contents in manifest/error messages.
+            const text = String(error.message || "");
+            itemRecord.error = /size limit|size limit|per-file size limit/.test(text) ?
+                "size_limit" : /metadata HTTP \d+/.test(text) ?
+                    text : /file HTTP \d+/.test(text) ?
+                    text : /same-origin/.test(text) ?
+                    "unsupported_download_url" : "unavailable";
+        }
+        records.push(itemRecord);
+    }
+    const summary = {
+        discovered: discovery.items.length + discovery.skipped_count,
+        attempted: discovery.items.length,
+        downloaded: entries.length,
+        failed: records.length - entries.length,
+        skipped_limit: discovery.skipped_count,
+        bytes_downloaded: totalBytes
+    };
+    return {
+        entries,
+        manifest: {
+            manifest_format: "chatgpt-conversation-attachments-v1",
+            summary,
+            items: records
+        },
+        summary
+    };
+}
+
+if (typeof module !== "undefined" && module.exports) {
+    module.exports = {
+        discoverAttachments, collectAttachments,
+        fileIdFromPointer, safeSandboxPath, safeAttachmentName,
+        readBoundedResponse, allowedAttachmentURL
+    };
 }
 
 "use strict";
@@ -677,7 +1047,7 @@ if (typeof module !== "undefined" && module.exports) {
     const SETTINGS_KEY = "chatgpt-conversation-exporter.settings.v2";
     const LEGACY_SETTINGS_KEY = "chatgpt-conversation-exporter.settings.v1";
     const SESSION_KEY = "chatgpt-conversation-exporter.session-settings.v2";
-    const DEFAULT_SETTINGS = Object.freeze({ numTurns: 3, delay: 100 });
+    const DEFAULT_SETTINGS = Object.freeze({ numTurns: 3, delay: 100, includeAttachments: false });
     const MAX_TURNS = 1000;
     const MAX_DELAY_MS = 60000;
 
@@ -689,7 +1059,7 @@ if (typeof module !== "undefined" && module.exports) {
             raw.delay < 0 || raw.delay > MAX_DELAY_MS) {
             return null;
         }
-        return { numTurns: raw.numTurns, delay: raw.delay };
+        return { numTurns: raw.numTurns, delay: raw.delay, includeAttachments: raw.includeAttachments === true };
     }
 
     function migrateLegacySettings(raw) {
@@ -713,6 +1083,8 @@ if (typeof module !== "undefined" && module.exports) {
         sessionMode: null,
         numTurns: DEFAULT_SETTINGS.numTurns,
         delay: DEFAULT_SETTINGS.delay,
+        includeAttachments: false,
+        attachmentInput: null,
         settingsLoaded: false,
         settingsError: "",
         settingsHint: "",
@@ -754,9 +1126,11 @@ if (typeof module !== "undefined" && module.exports) {
         if (!state.modeTurnInput || !state.modeDelayInput) return;
         state.modeTurnInput.value = String(state.numTurns);
         state.modeDelayInput.value = String(state.delay);
+        if (state.attachmentInput) state.attachmentInput.checked = state.includeAttachments;
         const disabled = !state.settingsLoaded || Boolean(state.controller);
         state.modeTurnInput.disabled = disabled;
         state.modeDelayInput.disabled = disabled;
+        if (state.attachmentInput) state.attachmentInput.disabled = disabled;
         state.saveSettingsButton.disabled = disabled;
         state.resetSettingsButton.disabled = disabled;
         updateSettingsNote();
@@ -777,7 +1151,9 @@ if (typeof module !== "undefined" && module.exports) {
     function applySettings(settings) {
         state.numTurns = settings.numTurns;
         state.delay = settings.delay;
-        storeSessionSettings(settings);
+        state.includeAttachments = settings.includeAttachments === true;
+        storeSessionSettings({ numTurns: state.numTurns, delay: state.delay,
+            includeAttachments: state.includeAttachments });
     }
 
     function readFields() {
@@ -785,7 +1161,8 @@ if (typeof module !== "undefined" && module.exports) {
         const delay = state.modeDelayInput?.value?.trim();
         if (!turns || !delay || !/^\d+$/.test(turns) ||
             !/^\d+$/.test(delay)) return null;
-        return validateSettings({ numTurns: Number(turns), delay: Number(delay) });
+        return validateSettings({ numTurns: Number(turns), delay: Number(delay),
+            includeAttachments: state.includeAttachments });
     }
 
     function applyFields() {
@@ -811,7 +1188,8 @@ if (typeof module !== "undefined" && module.exports) {
     let pendingSave = Promise.resolve();
     function saveSettings() {
         if (!applyFields()) return;
-        const settings = { numTurns: state.numTurns, delay: state.delay };
+        const settings = { numTurns: state.numTurns, delay: state.delay,
+            includeAttachments: state.includeAttachments };
         // Serialize Greasemonkey async writes to prevent older clicks from
         // overwriting newer saved settings.
         pendingSave = pendingSave.catch(() => {}).then(async () => {
@@ -856,6 +1234,7 @@ if (typeof module !== "undefined" && module.exports) {
             if (persisted) {
                 state.numTurns = persisted.numTurns;
                 state.delay = persisted.delay;
+                state.includeAttachments = persisted.includeAttachments;
             }
             try {
                 const rawSession = window.sessionStorage?.getItem(SESSION_KEY);
@@ -864,6 +1243,7 @@ if (typeof module !== "undefined" && module.exports) {
                 if (session) {
                     state.numTurns = session.numTurns;
                     state.delay = session.delay;
+                    state.includeAttachments = session.includeAttachments;
                 }
             } catch (error) {
                 console.warn("[ChatGPT Conversation Exporter] Could not load tab settings.", error);
@@ -882,6 +1262,7 @@ if (typeof module !== "undefined" && module.exports) {
         state.modePanel = null;
         state.modeTurnInput = null;
         state.modeDelayInput = null;
+        state.attachmentInput = null;
         state.modeNote = null;
         state.saveSettingsButton = null;
         state.resetSettingsButton = null;
@@ -950,6 +1331,41 @@ if (typeof module !== "undefined" && module.exports) {
             state.delay, 0, MAX_DELAY_MS);
         root.appendChild(fields);
 
+        const attachmentsLabel = document.createElement("label");
+        Object.assign(attachmentsLabel.style, {
+            display: "flex", gap: "8px", alignItems: "center", marginTop: "12px"
+        });
+        const attachmentCheckbox = document.createElement("input");
+        attachmentCheckbox.id = "chatgpt-conversation-export-include-attachments";
+        attachmentCheckbox.type = "checkbox";
+        attachmentCheckbox.checked = state.includeAttachments;
+        attachmentCheckbox.setAttribute("aria-label", "Include attachments (experimental)");
+        attachmentCheckbox.addEventListener("change", () => {
+            if (state.controller || !state.settingsLoaded) {
+                updateSettingsInputs();
+                return;
+            }
+            state.includeAttachments = Boolean(attachmentCheckbox.checked);
+            storeSessionSettings({
+                numTurns: state.numTurns, delay: state.delay,
+                includeAttachments: state.includeAttachments
+            });
+            state.settingsHint = "Current tab updated; click Save for permanent settings.";
+            state.settingsError = "";
+            updateSettingsNote();
+        });
+        attachmentsLabel.appendChild(attachmentCheckbox);
+        const attachmentText = document.createElement("span");
+        attachmentText.textContent = "Include attachments (experimental)";
+        attachmentsLabel.appendChild(attachmentText);
+        root.appendChild(attachmentsLabel);
+        const attachmentInfo = document.createElement("div");
+        attachmentInfo.textContent = "Download available chat files into ZIP; missing files are listed in a manifest.";
+        Object.assign(attachmentInfo.style, {
+            fontSize: "11px", color: "#c4cedb", marginTop: "4px"
+        });
+        root.appendChild(attachmentInfo);
+
         const buttons = document.createElement("div");
         Object.assign(buttons.style, {
             display: "flex", gap: "8px", marginTop: "12px"
@@ -988,6 +1404,7 @@ if (typeof module !== "undefined" && module.exports) {
         state.modePanel = root;
         state.modeTurnInput = turns;
         state.modeDelayInput = delay;
+        state.attachmentInput = attachmentCheckbox;
         state.modeNote = note;
         state.saveSettingsButton = save;
         state.resetSettingsButton = reset;
@@ -1142,21 +1559,67 @@ if (typeof module !== "undefined" && module.exports) {
     }
 
     async function download(data, signal) {
+        let attachmentData = null;
+        if (state.includeAttachments) {
+            report("Downloading attachments ...", "Finding referenced files ...");
+            attachmentData = await collectAttachments(
+                data.messages, data.conversation_id, {
+                    signal, fetchImpl: (...args) => fetch(...args),
+                    onProgress: (n, total) => report(
+                        "Downloading attachments ...",
+                        "Attachment " + n + " of " + total
+                    )
+                }
+            );
+            // The chat JSON remains otherwise unchanged. The flag accurately
+            // indicates that separate attachment retrieval was attempted.
+            data.local_export_audit.attachments_fetched_separately = true;
+        }
         const started = performance.now();
         const json = JSON.stringify(data, null, 2);
         const serializationMs = Math.round((performance.now() - started) * 10) / 10;
         const jsonFileName = "chatgpt-conversation-" + data.conversation_id + ".json";
-        const compressed = await compressJsonAsZipOrPlain(json, jsonFileName);
+        let compressed, warning = null;
+        if (attachmentData) {
+            try {
+                const entries = [
+                    { name: jsonFileName, bytes: json },
+                    { name: "attachments-manifest.json",
+                      bytes: JSON.stringify(attachmentData.manifest, null, 2) },
+                    ...attachmentData.entries
+                ];
+                const zip = await compressFilesToZip(entries);
+                compressed = {
+                    blob: zip.blob,
+                    fileName: jsonFileName.replace(/\.json$/i, ".zip"),
+                    format: "zip",
+                    jsonBytes: new TextEncoder().encode(json).byteLength,
+                    archiveBytes: zip.archiveBytes,
+                    compressionMs: zip.compressionMs
+                };
+                if (attachmentData.summary.failed || attachmentData.summary.skipped_limit) {
+                    warning = "Some attachments were unavailable or skipped; see attachments-manifest.json.";
+                }
+            } catch (error) {
+                // Do not lose the underlying conversation if the experimental
+                // multi-file ZIP implementation cannot package the binaries.
+                console.warn("[ChatGPT Conversation Exporter] Attachment packaging failed.");
+                compressed = await compressJsonAsZipOrPlain(json, jsonFileName);
+                warning = "Attachment ZIP failed; saved conversation only.";
+            }
+        } else {
+            compressed = await compressJsonAsZipOrPlain(json, jsonFileName);
+            warning = compressed.warning;
+        }
 
-        // A user can cancel while native compression is still underway.
         if (signal.aborted) {
             const error = new Error("Export cancelled during compression.");
             error.name = "AbortError";
             throw error;
         }
 
-        if (compressed.warning) {
-            console.warn("[ChatGPT Conversation Exporter]", compressed.warning);
+        if (warning) {
+            console.warn("[ChatGPT Conversation Exporter]", warning);
         }
         saveBlob(compressed.blob, compressed.fileName);
         return {
@@ -1167,7 +1630,8 @@ if (typeof module !== "undefined" && module.exports) {
             archive_bytes: compressed.archiveBytes,
             compression_ms: compressed.compressionMs,
             serialization_ms: serializationMs,
-            warning: compressed.warning
+            attachments: attachmentData ? attachmentData.summary : null,
+            warning
         };
     }
 
@@ -1297,6 +1761,9 @@ if (typeof module !== "undefined" && module.exports) {
                 "Duration: " + activeDuration + " (active); " +
                 "JSON uncompressed: " + jsonSizeMiB + " MiB; " +
                 downloadedSize + " – " + result.fileName +
+                (result.attachments ?
+                    " | Attachments: " + result.attachments.downloaded +
+                    "/" + result.attachments.discovered + " downloaded" : "") +
                 (result.warning ? " | " + result.warning : "")
             );
         } catch (error) {
