@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Conversation Exporter
 // @namespace    https://github.com/chrober/chatgpt-conversation-exporter
-// @version      0.1.7
+// @version      0.1.8
 // @author       Christoph O'Bermair
 // @description  Export the current ChatGPT conversation as JSON.
 // @match        https://chatgpt.com/*
@@ -414,7 +414,7 @@ function createExportProfiler(options = {}) {
         const recordCount = pages.at(-1)?.cumulative_records ?? 0;
         return {
             profile_format: "chatgpt-export-performance-v1",
-            userscript_version: "0.1.7",
+            userscript_version: "0.1.8",
             created_at: startedAt,
             reported_at: new Date().toISOString(),
             completed,
@@ -735,20 +735,26 @@ if (typeof module !== "undefined" && module.exports) {
             root.remove();
             state.panel = null;
         });
-        setCancelEnabled(cancel, Boolean(state.controller &&
-            !state.controller.signal.aborted));
-        updatePerformanceAction({ saveProfile });
+        updatePanelActions({ cancel, saveProfile });
         root.appendChild(actions);
         document.body.appendChild(root);
         state.panel = { root, status, progress, cancel, saveProfile };
         return state.panel;
     }
 
-    function updatePerformanceAction(panel) {
-        const available = state.exportSettled && Boolean(state.profiler);
-        panel.saveProfile.hidden = !available;
-        panel.saveProfile.style.display = available ? "" : "none";
-        panel.saveProfile.disabled = !available;
+    function updatePanelActions(panel) {
+        const running = Boolean(state.controller);
+        const canCancel = running && !state.controller.signal.aborted;
+        // Exactly one contextual action: Cancel during a run, Save report
+        // after success, failure or cancellation. Close stays visible.
+        setCancelEnabled(panel.cancel, canCancel);
+        panel.cancel.hidden = !running;
+        panel.cancel.style.display = running ? "" : "none";
+
+        const canSave = state.exportSettled && Boolean(state.profiler);
+        panel.saveProfile.hidden = !canSave;
+        panel.saveProfile.style.display = canSave ? "" : "none";
+        panel.saveProfile.disabled = !canSave;
     }
 
     function report(message, detail = "") {
@@ -761,7 +767,7 @@ if (typeof module !== "undefined" && module.exports) {
         if (panel) {
             panel.status.textContent = message;
             panel.progress.textContent = detail;
-            updatePerformanceAction(panel);
+            updatePanelActions(panel);
         }
         console.info("[ChatGPT Conversation Exporter]", message, detail);
     }
@@ -850,11 +856,11 @@ if (typeof module !== "undefined" && module.exports) {
 
         const session = state.session;
         state.exportSettled = false;
-        if (state.panel?.root?.isConnected) updatePerformanceAction(state.panel);
+        if (state.panel?.root?.isConnected) updatePanelActions(state.panel);
         state.controller = new AbortController();
         updateLauncherActivity();
         const signal = state.controller.signal;
-        setCancelEnabled(showPanel().cancel, true);
+        updatePanelActions(showPanel());
         const runStarted = state.profiler.runStarted();
 
         try {
@@ -912,8 +918,7 @@ if (typeof module !== "undefined" && module.exports) {
             updateLauncherActivity();
             state.exportSettled = true;
             if (state.panel?.root?.isConnected) {
-                setCancelEnabled(state.panel.cancel, false);
-                updatePerformanceAction(state.panel);
+                updatePanelActions(state.panel);
             }
         }
     }
