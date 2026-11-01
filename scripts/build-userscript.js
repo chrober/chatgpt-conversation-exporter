@@ -7,13 +7,14 @@ const root = path.resolve(__dirname, "..");
 const core = fs.readFileSync(path.join(root, "src/exporter-core.js"), "utf8").trimEnd();
 const entry = fs.readFileSync(path.join(root, "src/userscript-entry.js"), "utf8").trimEnd();
 const profiling = fs.readFileSync(path.join(root, "src/profiling.js"), "utf8").trimEnd();
+const compression = fs.readFileSync(path.join(root, "src/compression.js"), "utf8").trimEnd();
 const target = path.join(root, "userscripts/chatgpt-conversation-export.user.js");
 
 const metadata = [
     "// ==UserScript==",
     "// @name         ChatGPT Conversation Exporter",
     "// @namespace    https://github.com/chrober/chatgpt-conversation-exporter",
-    "// @version      0.1.5",
+    "// @version      0.1.6",
     "// @author       Christoph O'Bermair",
     "// @description  Export the current ChatGPT conversation as JSON.",
     "// @match        https://chatgpt.com/*",
@@ -28,6 +29,7 @@ const output = [
     "(function () {",
     core,
     profiling,
+    compression,
     entry,
     "})();"
 ].join("\n\n") + "\n";
