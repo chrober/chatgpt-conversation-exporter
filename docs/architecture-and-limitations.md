@@ -2,12 +2,12 @@
 
 ## Ziel
 
-Ein dediziertes Greasemonkey-Userscript ruft genau den **aktuell geöffneten Original-Chat** über die vorhandene ChatGPT-Browser-Sitzung ab. Das Programm ist **kein** Scraper des sichtbaren DOMs; es verwendet einen internen, undokumentierten Nachrichten-Endpunkt. Die Funktion kann sich durch Backend-Änderungen jederzeit verändern.
+Ein dediziertes Greasemonkey-/Tampermonkey-Userscript ruft genau den **aktuell geöffneten Original-Chat** über die vorhandene ChatGPT-Browser-Sitzung ab. Das Programm ist **kein** Scraper des sichtbaren DOMs; es verwendet einen internen, undokumentierten Nachrichten-Endpunkt. Die Funktion kann sich durch Backend-Änderungen jederzeit verändern.
 
 ## Komponenten
 
 - `src/exporter-core.js`: URL-/ID-Prüfung, Sitzungsheader, kleine sequentielle Seitenabfragen, Retries, Validierung, In-Memory-Fortsetzung, Zusammenführung und Audit. Ohne Browser-UI testbar.
-- `src/userscript-entry.js`: `GM.registerMenuCommand`, Browser-Kontextprüfung im Klickmoment, Statusfenster, Abbruch über `AbortController`, Blob-/Browser-Download.
+- `src/userscript-entry.js`: `GM_registerMenuCommand` für Tampermonkey bzw. `GM.registerMenuCommand` für Greasemonkey, zusätzlich ein fester in-Page-Startbutton als universeller Fallback, Browser-Kontextprüfung im Klickmoment, Statusfenster, Abbruch über `AbortController`, Blob-/Browser-Download.
 - `scripts/build-userscript.js`: deterministische Zusammenführung der Quellen mit Userscript-Metadaten; keine Runtime-CDNs, keine `@require`-Abhängigkeiten.
 - `userscripts/chatgpt-conversation-export.user.js`: **installierbares, generiertes Artefakt**, nicht direkt editieren.
 - `tests/exporter.test.js`: simulierte API-Antworten, keine realen Chat- oder Sitzungsdaten.
@@ -64,7 +64,7 @@ Das JSON-Beispiel ist eine **Formillustration**, keine realistische vollständig
 ## Sicherheit
 
 - `@match https://chatgpt.com/*`, nur gleiche Origin und keine externen Hosts.
-- Kein Export ohne expliziten Menüaufruf.
+- Kein Export ohne expliziten Klick auf Menüeintrag **oder** Export-Button. Der in-Page-Button ist auf `chatgpt.com` auch außerhalb einer Unterhaltung sichtbar; vor dem Start validiert der Exporter die Original-Chat-URL.
 - Kein externer Code oder Dienst; JSON als lokaler Blob-Download.
 - Die exportierten Daten können sensible Inhalte enthalten. Keine echten Exporte in Git, Issues oder CI legen. Alle Tests verwenden erfundene IDs und Nachrichten.
 - Da der Browser-Download aus der Greasemonkey-Sandbox noch nicht real validiert wurde, bleibt dies eine **Entwicklungsfassung**.
