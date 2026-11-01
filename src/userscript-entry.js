@@ -655,6 +655,14 @@
             document.getElementById("chatgpt-conversation-export-launcher")) {
             return;
         }
+        // A shared flex toolbar keeps the gear immediately to the right.
+        const toolbar = document.createElement("div");
+        toolbar.id = "chatgpt-conversation-export-toolbar";
+        Object.assign(toolbar.style, {
+            position: "fixed", bottom: "18px", right: "18px",
+            zIndex: "2147483646", display: "inline-flex",
+            alignItems: "center", gap: "5px"
+        });
         const button = document.createElement("button");
         button.id = "chatgpt-conversation-export-launcher";
         button.type = "button";
@@ -663,21 +671,17 @@
         button.setAttribute("aria-label", button.title);
         button.setAttribute("aria-busy", "false");
         Object.assign(button.style, {
-            position: "fixed",
-            bottom: "18px",
-            right: "18px",
-            zIndex: "2147483646",
-            padding: "8px 12px",
+            padding: "6px 9px",
             border: "1px solid #8c99a8",
             borderRadius: "8px",
             color: "#fff",
             background: "#253144",
             boxShadow: "0 3px 12px rgba(0,0,0,.25)",
             cursor: "pointer",
-            font: "12px/1.3 system-ui, sans-serif",
+            font: "11px/1.3 system-ui, sans-serif",
             display: "inline-flex",
             alignItems: "center",
-            gap: "8px"
+            gap: "6px"
         });
 
         // Three staggered CSS-animated dots; no timers or external dependencies.
@@ -725,25 +729,26 @@
         state.launcherSpinner = spinner;
         updateLauncherActivity();
         button.addEventListener("click", () => { void startExport(); });
-        document.body.appendChild(button);
+        toolbar.appendChild(button);
 
-        // Separate small settings button keeps single-click export unchanged.
+        // Adjacent compact gear opens the numeric settings panel.
         const settings = document.createElement("button");
         settings.id = "chatgpt-conversation-export-mode-button";
         settings.type = "button";
-        settings.textContent = "Mode";
-        settings.title = "Choose benchmark settings for the next export";
+        settings.textContent = "⚙";
+        settings.title = "Export performance settings";
         settings.setAttribute("aria-label", settings.title);
         Object.assign(settings.style, {
-            position: "fixed", bottom: "18px", right: "202px",
-            zIndex: "2147483646", padding: "8px 10px",
-            border: "1px solid #8c99a8", borderRadius: "8px",
-            color: "#fff", background: "#253144",
-            cursor: "pointer", font: "12px/1.3 system-ui, sans-serif",
+            display: "inline-flex", alignItems: "center",
+            justifyContent: "center", width: "27px", height: "27px",
+            padding: "0", border: "1px solid #8c99a8",
+            borderRadius: "6px", color: "#fff", background: "#253144",
+            cursor: "pointer", font: "18px/1 system-ui, sans-serif",
             boxShadow: "0 3px 12px rgba(0,0,0,.25)"
         });
         settings.addEventListener("click", toggleModePanel);
-        document.body.appendChild(settings);
+        toolbar.appendChild(settings);
+        document.body.appendChild(toolbar);
     }
 
     if (typeof document !== "undefined") {
