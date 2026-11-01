@@ -37,7 +37,8 @@ function safeSandboxPath(value) {
 
 function discoverAttachments(messages, maxCount = MAX_ATTACHMENT_COUNT) {
     const files = new Map();
-    function record(kind, identifier, name, message, source = "unknown") {
+    function record(kind, identifier, name, message, source = "unknown",
+        referenceKeys = []) {
         if (!identifier) return;
         const key = kind + ":" + identifier + (kind === "sandbox" ? ":" + message.id : "");
         const fallback = kind === "file" ? identifier : "generated-file";
@@ -51,10 +52,16 @@ function discoverAttachments(messages, maxCount = MAX_ATTACHMENT_COUNT) {
             if (source === "sediment" || source === "file-service") {
                 existing.source = source;
             }
+            existing.reference_keys = [...new Set([
+                ...existing.reference_keys, ...referenceKeys
+            ])].sort();
             return;
         }
         files.set(key, {
             kind, identifier, source,
+            // Record *field names*, never contents, to diagnose ambiguous
+            // metadata-id references without leaking ChatGPT payloads.
+            reference_keys: [...new Set(referenceKeys)].sort(),
             file_name: safeAttachmentName(name, fallback),
             message_ids: [message.id],
             role: message.author?.role ?? "unknown"
@@ -69,6 +76,11 @@ function discoverAttachments(messages, maxCount = MAX_ATTACHMENT_COUNT) {
         }
         const name = obj.name || obj.file_name || obj.filename ||
             obj.original_filename || obj.display_name;
+        const referenceKeys = [
+            "id", "file_id", "fileId", "asset_pointer", "assetPointer",
+            "name", "file_name", "filename", "mime_type", "size_bytes",
+            "upload_id", "source", "content_type"
+        ].filter(key => Object.hasOwn(obj, key));
         const candidates = [
             [obj.file_id, "file-id"], [obj.fileId, "file-id"],
             [obj.asset_pointer, "pointer"], [obj.assetPointer, "pointer"],
@@ -81,7 +93,7 @@ function discoverAttachments(messages, maxCount = MAX_ATTACHMENT_COUNT) {
                 candidate.startsWith("sediment://") ? "sediment" :
                 typeof candidate === "string" &&
                 candidate.startsWith("file-service://") ? "file-service" : field;
-            record("file", id, name, message, source);
+            record("file", id, name, message, source, referenceKeys);
         }
         // Some generated file cards expose a sandbox path structurally.
         for (const value of [obj.sandbox_path, obj.sandbox_url]) {
@@ -216,6 +228,7 @@ async function attachmentAuthHeaders(fetchImpl, signal) {
 async function resolveDownloadMetadata(item, conversationId, fetchImpl,
     headers, signal) {
     const tried = [];
+    const routeStatuses = [];
     let lastHttp = null;
     for (const route of attachmentMetadataRoutes(item, conversationId)) {
         tried.push(route.label);
@@ -226,16 +239,23 @@ async function resolveDownloadMetadata(item, conversationId, fetchImpl,
         });
         if (!response.ok) {
             lastHttp = response.status;
+            routeStatuses.push({
+                resolver: route.label,
+                status: Number.isInteger(response.status) ?
+                    response.status : null
+            });
             // Only a missing route/file permits a different read-only
             // resolver. Never probe other routes on 401, 403 or rate limits.
             if (response.status === 404 || response.status === 410) continue;
-            return { meta: null, tried,
+            return { meta: null, tried, routeStatuses,
                 error: "metadata HTTP " + (response.status ?? "error") };
         }
         const meta = await response.json();
-        return { meta, tried, resolved_by: route.label };
+        routeStatuses.push({ resolver: route.label, status: 200 });
+        return { meta, tried, routeStatuses, resolved_by: route.label };
     }
-    return { meta: null, tried, error: "metadata HTTP " + (lastHttp ?? "error") };
+    return { meta: null, tried, routeStatuses,
+        error: "metadata HTTP " + (lastHttp ?? "error") };
 }
 
 async function collectAttachments(messages, conversationId, options = {}) {
@@ -271,6 +291,12 @@ async function collectAttachments(messages, conversationId, options = {}) {
             message_ids: item.message_ids,
             role: item.role,
             source: item.source,
+            reference_keys: item.reference_keys,
+            conversation_scope: options.conversationScope === "project" ?
+                "project" : "regular_or_unknown",
+            auth_mode: authHeaders.Authorization ? "bearer_and_cookies" :
+                "cookies_only",
+            resolver_http_statuses: [],
             resolver_routes_tried: [],
             resolved_by: null,
             status: "failed",
@@ -283,6 +309,7 @@ async function collectAttachments(messages, conversationId, options = {}) {
                 item, conversationId, fetchImpl, authHeaders, signal
             );
             itemRecord.resolver_routes_tried = resolution.tried;
+            itemRecord.resolver_http_statuses = resolution.routeStatuses;
             itemRecord.resolved_by = resolution.resolved_by ?? null;
             if (!resolution.meta) {
                 throw new Error(resolution.error);
