@@ -280,6 +280,10 @@ test("HTTP 403 stops route fallback and preserves diagnostic without URLs", asyn
     assert.equal(res.summary.failed, 1);
     assert.equal(res.manifest.items[0].error, "metadata HTTP 403");
     assert.deepEqual(res.manifest.items[0].resolver_routes_tried, ["files-by-id"]);
+    assert.deepEqual(res.manifest.items[0].resolver_http_statuses, [{
+        resolver: "files-by-id", status: 403
+    }]);
+    assert.equal(res.manifest.items[0].auth_mode, "cookies_only");
 });
 
 test("404 diagnostics include all three attempted resolvers without claiming file deletion", async () => {
@@ -327,4 +331,58 @@ test("fetches session bearer for attachment metadata and same-origin binary", as
     assert.equal(headers[1].Authorization, "Bearer SECRET_TOKEN");
     assert.equal(headers[2].Authorization, "Bearer SECRET_TOKEN");
     assert.equal(JSON.stringify(res.manifest).includes("SECRET_TOKEN"), false);
+});
+
+
+test("failed metadata-id upload diagnostics show safe keys, scope, and authenticated HTTP status", async () => {
+    const uploaded = item("m42", "user", [], [{
+        id: FILE,
+        name: "private-archive.7z",
+        mime_type: "application/x-7z-compressed",
+        private_note: "NEVER_INCLUDE_ME",
+        download_url: "https://example.com/?sig=SENSITIVE"
+    }]);
+    const calls = [];
+    const result = await collectAttachments([uploaded], CID, {
+        conversationScope: "project",
+        authHeaders: { Authorization: "Bearer SECRET" },
+        fetchImpl: async (url, options) => {
+            calls.push({ url, options });
+            return { ok: false, status: 403 };
+        }
+    });
+    assert.equal(calls.length, 1, "do not probe after forbidden response");
+    assert.equal(result.summary.failed, 1);
+    const itemResult = result.manifest.items[0];
+    assert.equal(itemResult.source, "metadata-id");
+    assert.deepEqual(itemResult.reference_keys, ["id", "mime_type", "name"]);
+    assert.equal(itemResult.conversation_scope, "project");
+    assert.equal(itemResult.auth_mode, "bearer_and_cookies");
+    assert.deepEqual(itemResult.resolver_http_statuses, [
+        { resolver: "files-by-id", status: 403 }
+    ]);
+    assert.equal(itemResult.error, "metadata HTTP 403");
+    const manifest = JSON.stringify(result.manifest);
+    assert.equal(manifest.includes("SECRET"), false);
+    assert.equal(manifest.includes("SENSITIVE"), false);
+    assert.equal(manifest.includes("NEVER_INCLUDE_ME"), false);
+});
+
+test("missing resolver routes preserve individual safe HTTP statuses without URL bodies", async () => {
+    const calls = [];
+    const result = await collectAttachments([
+        item("m", "user", [], [{ id: FILE }])
+    ], CID, {
+        authHeaders: {},
+        fetchImpl: async url => {
+            calls.push(url);
+            return { ok: false, status: calls.length === 1 ? 404 : 410 };
+        }
+    });
+    assert.equal(result.summary.failed, 1);
+    assert.deepEqual(result.manifest.items[0].resolver_http_statuses, [
+        { resolver: "files-by-id", status: 404 },
+        { resolver: "conversation-attachment", status: 410 },
+        { resolver: "files-download", status: 410 }
+    ]);
 });
