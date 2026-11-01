@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Conversation Exporter
 // @namespace    https://github.com/chrober/chatgpt-conversation-exporter
-// @version      0.1.6
+// @version      0.1.7
 // @author       Christoph O'Bermair
 // @description  Export the current ChatGPT conversation as JSON.
 // @match        https://chatgpt.com/*
@@ -414,7 +414,7 @@ function createExportProfiler(options = {}) {
         const recordCount = pages.at(-1)?.cumulative_records ?? 0;
         return {
             profile_format: "chatgpt-export-performance-v1",
-            userscript_version: "0.1.6",
+            userscript_version: "0.1.7",
             created_at: startedAt,
             reported_at: new Date().toISOString(),
             completed,
@@ -625,6 +625,8 @@ if (typeof module !== "undefined" && module.exports) {
         controller: null,
         panel: null,
         profiler: null,
+        launcher: null,
+        launcherSpinner: null,
         exportSettled: false,
         statusText: "Ready.",
         detailText: ""
@@ -632,6 +634,15 @@ if (typeof module !== "undefined" && module.exports) {
 
     function currentUrl() {
         return window.location.origin + window.location.pathname;
+    }
+
+    function updateLauncherActivity() {
+        // The launcher is independent of the dismissible progress panel.
+        // Keep the spinner active during requests, retries and ZIP compression.
+        if (!state.launcher || !state.launcherSpinner) return;
+        const running = Boolean(state.controller);
+        state.launcherSpinner.style.display = running ? "inline-block" : "none";
+        state.launcher.setAttribute("aria-busy", String(running));
     }
 
     // The button already used the native disabled attribute; style it too so
@@ -841,6 +852,7 @@ if (typeof module !== "undefined" && module.exports) {
         state.exportSettled = false;
         if (state.panel?.root?.isConnected) updatePerformanceAction(state.panel);
         state.controller = new AbortController();
+        updateLauncherActivity();
         const signal = state.controller.signal;
         setCancelEnabled(showPanel().cancel, true);
         const runStarted = state.profiler.runStarted();
@@ -897,6 +909,7 @@ if (typeof module !== "undefined" && module.exports) {
         } finally {
             state.profiler.runEnded(runStarted);
             state.controller = null;
+            updateLauncherActivity();
             state.exportSettled = true;
             if (state.panel?.root?.isConnected) {
                 setCancelEnabled(state.panel.cancel, false);
@@ -940,6 +953,7 @@ if (typeof module !== "undefined" && module.exports) {
         button.textContent = "Export chat as JSON";
         button.title = "Export the currently open original conversation as JSON";
         button.setAttribute("aria-label", button.title);
+        button.setAttribute("aria-busy", "false");
         Object.assign(button.style, {
             position: "fixed",
             bottom: "18px",
@@ -952,8 +966,39 @@ if (typeof module !== "undefined" && module.exports) {
             background: "#253144",
             boxShadow: "0 3px 12px rgba(0,0,0,.25)",
             cursor: "pointer",
-            font: "12px/1.3 system-ui, sans-serif"
+            font: "12px/1.3 system-ui, sans-serif",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "8px"
         });
+
+        // Inject one local keyframe rule. No timers or external dependencies.
+        if (!document.getElementById("chatgpt-conversation-export-spinner-style")) {
+            const css = document.createElement("style");
+            css.id = "chatgpt-conversation-export-spinner-style";
+            css.textContent =
+                "@keyframes chatgpt-conversation-export-spin {" +
+                "to { transform: rotate(360deg); }}";
+            (document.head || document.body).appendChild(css);
+        }
+
+        const spinner = document.createElement("span");
+        spinner.id = "chatgpt-conversation-export-spinner";
+        spinner.setAttribute("aria-hidden", "true");
+        Object.assign(spinner.style, {
+            display: "none",
+            width: "12px",
+            height: "12px",
+            flexShrink: "0",
+            border: "2px solid rgba(255,255,255,0.85)",
+            borderTopColor: "transparent",
+            borderRadius: "50%",
+            animation: "chatgpt-conversation-export-spin 800ms linear infinite"
+        });
+        button.appendChild(spinner);
+        state.launcher = button;
+        state.launcherSpinner = spinner;
+        updateLauncherActivity();
         button.addEventListener("click", () => { void startExport(); });
         document.body.appendChild(button);
     }
