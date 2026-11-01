@@ -37,7 +37,7 @@ function safeSandboxPath(value) {
 
 function discoverAttachments(messages, maxCount = MAX_ATTACHMENT_COUNT) {
     const files = new Map();
-    function record(kind, identifier, name, message) {
+    function record(kind, identifier, name, message, source = "unknown") {
         if (!identifier) return;
         const key = kind + ":" + identifier + (kind === "sandbox" ? ":" + message.id : "");
         const fallback = kind === "file" ? identifier : "generated-file";
@@ -46,10 +46,15 @@ function discoverAttachments(messages, maxCount = MAX_ATTACHMENT_COUNT) {
             if (!existing.message_ids.includes(message.id)) {
                 existing.message_ids.push(message.id);
             }
+            // The pointer scheme tells us which ChatGPT API route to try
+            // first. Preserve it if later metadata carries that detail.
+            if (source === "sediment" || source === "file-service") {
+                existing.source = source;
+            }
             return;
         }
         files.set(key, {
-            kind, identifier,
+            kind, identifier, source,
             file_name: safeAttachmentName(name, fallback),
             message_ids: [message.id],
             role: message.author?.role ?? "unknown"
@@ -64,11 +69,19 @@ function discoverAttachments(messages, maxCount = MAX_ATTACHMENT_COUNT) {
         }
         const name = obj.name || obj.file_name || obj.filename ||
             obj.original_filename || obj.display_name;
-        const candidates = [obj.file_id, obj.fileId, obj.asset_pointer,
-            obj.assetPointer, obj.id];
-        for (const candidate of candidates) {
+        const candidates = [
+            [obj.file_id, "file-id"], [obj.fileId, "file-id"],
+            [obj.asset_pointer, "pointer"], [obj.assetPointer, "pointer"],
+            [obj.id, "metadata-id"]
+        ];
+        for (const [candidate, field] of candidates) {
             const id = fileIdFromPointer(candidate);
-            if (id) record("file", id, name, message);
+            if (!id) continue;
+            const source = typeof candidate === "string" &&
+                candidate.startsWith("sediment://") ? "sediment" :
+                typeof candidate === "string" &&
+                candidate.startsWith("file-service://") ? "file-service" : field;
+            record("file", id, name, message, source);
         }
         // Some generated file cards expose a sandbox path structurally.
         for (const value of [obj.sandbox_path, obj.sandbox_url]) {
@@ -157,6 +170,74 @@ async function readBoundedResponse(response, limit) {
     return output;
 }
 
+
+function attachmentMetadataRoutes(item, conversationId) {
+    if (item.kind === "sandbox") {
+        return [{
+            label: "interpreter",
+            url: "/backend-api/conversation/" +
+                encodeURIComponent(conversationId) + "/interpreter/download?" +
+                new URLSearchParams({
+                    message_id: item.message_ids[0],
+                    sandbox_path: item.identifier
+                })
+        }];
+    }
+    const id = encodeURIComponent(item.identifier);
+    const conversation = encodeURIComponent(conversationId);
+    const routes = [
+        { label: "files-by-id", url: "/backend-api/files/" + id + "/download" },
+        { label: "conversation-attachment", url: "/backend-api/conversation/" +
+            conversation + "/attachment/" + id + "/download" },
+        { label: "files-download", url: "/backend-api/files/download/" + id +
+            "?conversation_id=" + conversation + "&inline=false" }
+    ];
+    if (item.source === "sediment") {
+        return [routes[1], routes[0], routes[2]];
+    }
+    // File service and generic upload metadata typically start here.
+    return routes;
+}
+
+async function attachmentAuthHeaders(fetchImpl, signal) {
+    const response = await fetchImpl("/api/auth/session", {
+        credentials: "include", cache: "no-store", redirect: "error", signal
+    });
+    if (!response.ok) {
+        throw new Error("session HTTP " + response.status);
+    }
+    const session = await response.json();
+    const token = session?.accessToken ?? session?.access_token;
+    // Never store the token in the ZIP or report and never send it to
+    // non-ChatGPT origins.
+    return token ? { Authorization: "Bearer " + token } : {};
+}
+
+async function resolveDownloadMetadata(item, conversationId, fetchImpl,
+    headers, signal) {
+    const tried = [];
+    let lastHttp = null;
+    for (const route of attachmentMetadataRoutes(item, conversationId)) {
+        tried.push(route.label);
+        const response = await fetchImpl(route.url, {
+            credentials: "include", headers: {
+                ...headers, Accept: "application/json"
+            }, cache: "no-store", redirect: "error", signal
+        });
+        if (!response.ok) {
+            lastHttp = response.status;
+            // Only a missing route/file permits a different read-only
+            // resolver. Never probe other routes on 401, 403 or rate limits.
+            if (response.status === 404 || response.status === 410) continue;
+            return { meta: null, tried,
+                error: "metadata HTTP " + (response.status ?? "error") };
+        }
+        const meta = await response.json();
+        return { meta, tried, resolved_by: route.label };
+    }
+    return { meta: null, tried, error: "metadata HTTP " + (lastHttp ?? "error") };
+}
+
 async function collectAttachments(messages, conversationId, options = {}) {
     const fetchImpl = options.fetchImpl ?? fetch;
     const signal = options.signal;
@@ -166,6 +247,17 @@ async function collectAttachments(messages, conversationId, options = {}) {
     const discovery = discoverAttachments(messages);
     const records = [], entries = [];
     let totalBytes = 0;
+    let authHeaders = options.authHeaders;
+    if (authHeaders === undefined && discovery.items.length) {
+        try {
+            authHeaders = await attachmentAuthHeaders(fetchImpl, signal);
+        } catch (error) {
+            if (signal?.aborted || error.name === "AbortError") throw error;
+            // Cookies can still be sufficient on some ChatGPT installations.
+            authHeaders = {};
+        }
+    }
+    authHeaders ??= {};
     for (const [index, item] of discovery.items.entries()) {
         if (signal?.aborted) {
             const error = new Error("Attachment download cancelled.");
@@ -178,35 +270,31 @@ async function collectAttachments(messages, conversationId, options = {}) {
             file_name: item.file_name,
             message_ids: item.message_ids,
             role: item.role,
+            source: item.source,
+            resolver_routes_tried: [],
+            resolved_by: null,
             status: "failed",
             stored_path: null,
             size_bytes: null,
             error: null
         };
         try {
-            const endpoint = item.kind === "file" ?
-                "/backend-api/files/download/" +
-                    encodeURIComponent(item.identifier) + "?conversation_id=" +
-                    encodeURIComponent(conversationId) + "&inline=false" :
-                "/backend-api/conversation/" +
-                    encodeURIComponent(conversationId) + "/interpreter/download?" +
-                    new URLSearchParams({
-                        message_id: item.message_ids[0],
-                        sandbox_path: item.identifier
-                    });
-            const metaResponse = await fetchImpl(endpoint, {
-                credentials: "include", signal
-            });
-            if (!metaResponse.ok) {
-                throw new Error("metadata HTTP " + (metaResponse.status ?? "error"));
+            const resolution = await resolveDownloadMetadata(
+                item, conversationId, fetchImpl, authHeaders, signal
+            );
+            itemRecord.resolver_routes_tried = resolution.tried;
+            itemRecord.resolved_by = resolution.resolved_by ?? null;
+            if (!resolution.meta) {
+                throw new Error(resolution.error);
             }
-            const meta = await metaResponse.json();
+            const meta = resolution.meta;
             const url = meta.download_url || meta.url;
             if (!url || !allowedAttachmentURL(url)) {
                 throw new Error("no supported same-origin download URL");
             }
             const response = await fetchImpl(url, {
-                credentials: "include", signal, redirect: "error"
+                credentials: "include", headers: authHeaders,
+                signal, redirect: "error"
             });
             if (!response.ok) {
                 throw new Error("file HTTP " + (response.status ?? "error"));
@@ -260,6 +348,8 @@ if (typeof module !== "undefined" && module.exports) {
     module.exports = {
         discoverAttachments, collectAttachments,
         fileIdFromPointer, safeSandboxPath, safeAttachmentName,
-        readBoundedResponse, allowedAttachmentURL
+        readBoundedResponse, allowedAttachmentURL,
+        attachmentMetadataRoutes, attachmentAuthHeaders,
+        resolveDownloadMetadata
     };
 }
