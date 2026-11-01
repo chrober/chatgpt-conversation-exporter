@@ -240,7 +240,9 @@ test("the in-page launcher exists even without a userscript menu API", () => {
         getElementById: () => null,
         createElement: () => ({
             style: {},
+            children: [],
             setAttribute() {},
+            appendChild(child) { this.children.push(child); },
             addEventListener(event, callback) {
                 assert.equal(event, "click");
                 this.onClick = callback;
