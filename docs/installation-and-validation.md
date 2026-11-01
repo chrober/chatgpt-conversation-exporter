@@ -64,7 +64,7 @@ A new browser tab normally loads the durable saved values rather than unsaved ch
 
 ## Experimental file attachments (feature branch only)
 
-**Version 0.3.0-beta.1** adds a default-OFF **Include attachments (experimental)** checkbox below Turns and Delay in the gear panel. Setting the checkbox is session-only until **Save** is clicked. **Load defaults** turns it off; Save after loading defaults makes this choice permanent.
+**Version 0.3.0-beta.2** adds a default-OFF **Include attachments (experimental)** checkbox below Turns and Delay in the gear panel. Setting the checkbox is session-only until **Save** is clicked. **Load defaults** turns it off; Save after loading defaults makes this choice permanent.
 
 Install the [experimental branch build](https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/refs/heads/feat/optional-conversation-attachments/userscripts/chatgpt-conversation-export.user.js) as an **update/replacement** for the existing userscript, not as a second active copy. The published main-branch v0.2.3 remains unaffected.
 
@@ -74,7 +74,8 @@ Files are limited to **100 attempted references**, **50 MiB each**, **200 MiB to
 
 ### Manual Firefox/Tampermonkey acceptance
 
-- [ ] Verify version 0.3.0-beta.1 and that the checkbox defaults to **off** on a new installation.
+- [ ] Verify version 0.3.0-beta.2 and that the checkbox defaults to **off** on a new installation.
+- [ ] The attachment option shows a **visible empty square** to the left of its label, regardless of ChatGPT light/dark theme. Clicking makes it blue with a white checkmark; clicking again clears it. **Tab + Space/Enter** also toggles it, and `aria-checked` follows the visual state.
 - [ ] With checkbox **off**, export a known conversation; ZIP still has exactly one conversation JSON file and its content matches the main-branch export.
 - [ ] Upload a small ordinary file (e.g., a text file or PDF) to a test conversation; enable the checkbox and export. Inspect the manifest; confirm the file is present under `attachments/` and its bytes match the original.
 - [ ] Ask the assistant to generate a small CSV linked as `sandbox:/mnt/data/...`; export with the option enabled. Check whether the interpreter download succeeds; if not, the manifest should show a failed item rather than falsely claiming success.
