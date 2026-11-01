@@ -1,0 +1,16 @@
+{
+  "name": "chatgpt-conversation-exporter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Greasemonkey userscript for local single-conversation JSON exports",
+  "license": "MIT",
+  "scripts": {
+    "build": "node scripts/build-userscript.js",
+    "check:bundle": "node scripts/build-userscript.js --check",
+    "test": "node --test tests/*.test.js",
+    "check": "npm run check:bundle && npm test"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
