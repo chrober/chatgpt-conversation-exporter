@@ -1,20 +1,20 @@
 # Installation, Bedienung und Firefox-Abnahme
 
-> Entwicklungsstand 0.1.2 (Tampermonkey + Greasemonkey). Die Version 0.1.1 wurde mit **Tampermonkey unter Firefox erfolgreich ausgeführt**. Version 0.1.2 mit neuer Position, englischer UI und Profiling muss noch im Browser gegengeprüft werden.
+> Entwicklungsstand 0.1.4 (Tampermonkey + Greasemonkey). Die Version 0.1.1 wurde mit **Tampermonkey unter Firefox erfolgreich ausgeführt**. Version 0.1.4 mit neuer Position, englischer UI und Profiling muss noch im Browser gegengeprüft werden.
 
 ## Vorbereitungen
 
 - Firefox mit **Tampermonkey** oder Greasemonkey **4.11+**. Das Script unterstützt `GM_registerMenuCommand` und `GM.registerMenuCommand` und bietet zusätzlich einen immer sichtbaren Export-Button.
 - Bei `https://chatgpt.com` angemeldet sein und Zugriff auf den **Original-Chat** haben.
 - Genügend freier RAM und Festplattenspeicher; lange Chats können mehrere Dutzend MiB JSON erzeugen.
-- Das GitHub-Repository ist **öffentlich**. [V0.1.2 direkt aus dem Feature-Branch installieren](https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/refs/heads/feat/greasemonkey-single-conversation-export/userscripts/chatgpt-conversation-export.user.js). Falls Firefox keine Installation anbietet, den Raw-Inhalt in den Userscript-Editor einfügen. Eine vorhandene V0.1.0-/V0.1.1-Installation auf V0.1.2 aktualisieren oder ersetzen. Es gibt keine externen Bibliotheken.
+- Das GitHub-Repository ist **öffentlich**. [V0.1.4 direkt aus dem Feature-Branch installieren](https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/refs/heads/feat/greasemonkey-single-conversation-export/userscripts/chatgpt-conversation-export.user.js). Falls Firefox keine Installation anbietet, den Raw-Inhalt in den Userscript-Editor einfügen. Eine vorhandene V0.1.0-/V0.1.1-Installation auf V0.1.4 aktualisieren oder ersetzen. Es gibt keine externen Bibliotheken.
 
 ## Bedienung
 
 1. Original-Chat öffnen, etwa `https://chatgpt.com/c/<conversation-id>` oder `https://chatgpt.com/g/<projekt>/c/<conversation-id>`. **Nach Installation/Update Chat-Tab neu laden.**
 2. **Unten rechts auf der ChatGPT-Seite „Export chat as JSON“ klicken.** Optional über den Greasemonkey-/Tampermonkey-Menüpunkt **„Export current chat as JSON“** starten. In Tampermonkey öffnet der Pfeil rechts neben dem Script-Namen lediglich **Bearbeiten / Problem melden / Löschen**, nicht die Exportaktion.
 3. Im Statusfenster oberhalb des Buttons **API pages** (paginierte HTTP-Antworten, keine UI-Seiten) und **message records** (technische Nachrichtenobjekte) beobachten. Der Export startet **nur nach der Klickaktion**.
-4. Bei Bedarf **Cancel** wählen; die zuletzt erfolgreich validierten Seiten bleiben im Speicher des aktuellen Browser-Tabs. Erneut denselben Button bzw. Menüpunkt auswählen, um fortzusetzen.
+4. **Cancel** ist nur während eines laufenden Exports aktiv und wird nach Abschluss, Abbruch oder Fehler **disabled/grau** dargestellt. Bei Bedarf **Cancel** wählen; die zuletzt erfolgreich validierten Seiten bleiben im Speicher des aktuellen Browser-Tabs. Erneut denselben Button bzw. Menüpunkt auswählen, um fortzusetzen.
 5. Nach **Export complete – JSON download started** die Datei `chatgpt-conversation-<conversation-id>.json` im Browser-Downloadverzeichnis kontrollieren.
 6. JSON prüfen: `messages` als Array, `page_metadata`, `local_export_audit.pagination_verified === true`, `local_export_audit.unique_records` plausibel, zuletzt `has_previous_page=false`. Anfang und Ende des Verlaufs stichprobenartig mit dem Original abgleichen.
 
@@ -25,6 +25,7 @@ Das Statusfenster zeigt **keine Nachrichteninhalte** an. Mit **Save performance 
 - [ ] Tampermonkey-/Greasemonkey-Menübefehl erscheint auf dem ChatGPT-Tab (falls vom Manager unterstützt).
 - [ ] Der **„Export chat as JSON“**-Button unten rechts erscheint in Firefox auch ohne Menübefehl und verdeckt das ChatGPT-Menü nicht.
 - [ ] Fortschrittsfenster erscheint direkt über dem Button; alle Statusmeldungen sind auf Englisch.
+- [ ] **Cancel** ist während eines Exports aktiv und anschließend sichtbar grau/deaktiviert; der Profiling-Download funktioniert weiterhin.
 - [ ] **Save performance report** erzeugt ein valides Diagnose-JSON; enthält HTTP-Status, Fetch-/Parsezeiten, API-Seitenstatistik, Serialisierungszeit (nach vollständig abgeschlossenem Export), aber keine Chat-ID, URL, Cursor oder Inhalte.
 - [ ] Beim Laden einer Seite **kein automatischer** Chat-Export.
 - [ ] Kleiner Original-Chat: Einmal auf Menü klicken; HTTP-Abruf und Download sind erfolgreich, ohne Authentifizierungs-/CSP-/Sandbox-Fehler.
@@ -37,13 +38,13 @@ Das Statusfenster zeigt **keine Nachrichteninhalte** an. Mit **Save performance 
 - [ ] Keine Chat- oder Authentifizierungsdaten werden an andere Origins gesendet.
 - [ ] Kein privates JSON, kein Zugriffstoken in Git oder CI-Test-Logs.
 
-**Browserstatus:** Tampermonkey-Version 0.1.1 ist vom Anwender erfolgreich getestet. Der neue 0.1.2-Build muss noch überprüft werden. Automatisierte Tests können reale Firefox-Sandbox-, Layout- und Downloadprobleme nicht vollständig ausschließen.
+**Browserstatus:** Tampermonkey-Version 0.1.1 ist vom Anwender erfolgreich getestet. Der neue 0.1.4-Build muss noch überprüft werden. Automatisierte Tests können reale Firefox-Sandbox-, Layout- und Downloadprobleme nicht vollständig ausschließen.
 
 ## Fehlerdiagnose
 
 | Beobachtung | Maßnahme |
 | --- | --- |
-| Menüpunkt fehlt | Der Pfeil neben dem installierten Script in Tampermonkey zeigt nur Verwaltungsaktionen. **ChatGPT-Tab neu laden und unten rechts den Export-Button verwenden.** Scriptversion 0.1.2 sowie Grants `GM_registerMenuCommand` / `GM.registerMenuCommand` prüfen. |
+| Menüpunkt fehlt | Der Pfeil neben dem installierten Script in Tampermonkey zeigt nur Verwaltungsaktionen. **ChatGPT-Tab neu laden und unten rechts den Export-Button verwenden.** Scriptversion 0.1.4 sowie Grants `GM_registerMenuCommand` / `GM.registerMenuCommand` prüfen. |
 | `HTTP 401/403` | Angemeldete Sitzung und Sandbox-Zugriff prüfen; keine Token in Tickets posten. |
 | `HTTP 500 Request timeout` | Die Kernlogik nutzt direkte, kleine Paginierungsabfragen und wiederholt temporäre Fehler. |
 | `Paginierungsstatus fehlt`, leere Seite, Cursor wiederholt | API-Schema oder Daten verändert: bewusst **kein** Teil-Export; Diagnose ohne vertrauliche Daten erstellen. |
