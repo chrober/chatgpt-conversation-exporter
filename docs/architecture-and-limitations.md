@@ -10,7 +10,7 @@ A standalone Tampermonkey/Greasemonkey userscript exports **only the original Ch
 | --- | --- |
 | `src/exporter-core.js` | Original-conversation URL validation, authenticated pagination, retries, cursor validation, deduplication, in-tab resume and export audit |
 | `src/profiling.js` | Privacy-preserving request/page timings, counters and active-run tracking |
-| `src/compression.js` | Single-entry ZIP32 output with UTF-8 filename, CRC32 and browser-native DEFLATE; lossless plain-JSON fallback |
+| `src/compression.js` | Legacy single-entry ZIP32 plus experimental multi-entry ZIP32 (CRC32, DEFLATE or STORED), preserving plain-JSON fallback on packaging failures |
 | `src/userscript-entry.js` | Tampermonkey/Greasemonkey integration, launcher, gear settings, progress panel, cancellation, downloads |
 | `scripts/compare-exports.js` | Offline ZIP/JSON integrity and message equality comparator |
 | `scripts/build-userscript.js` | Deterministic assembly of source modules and userscript metadata |
@@ -110,9 +110,38 @@ This is an **illustrative schema**, not a realistic completed export. `page_meta
 
 `pagination_verified: true` means **the backend reported the end of the fetched older-page chain**. It does not prove that all historical versions, alternative branches, or external attachments were captured. `attachments_fetched_separately` is always `false`.
 
+## Optional attachments (experimental v0.3.0-beta.1)
+
+`src/attachments.js` implements **best-effort** file discovery and retrieval *after* a validated conversation export. It is deliberately separate from the original pagination core. The feature is disabled by default and is included in the existing session-only settings / explicit **Save** model.
+
+The discovery pass scans attachment metadata, structured image/file asset pointers, and assistant-generated Markdown `sandbox:/mnt/data/...` links. It deduplicates file IDs across messages and preserves originating message references in a **private** manifest.
+
+Download resolution is split by reference type:
+
+1. File IDs: `GET /backend-api/files/download/{file_id}?conversation_id={conversation_id}&inline=false` (expected JSON with a temporary `download_url`).
+2. Assistant sandbox files: `GET /backend-api/conversation/{conversation_id}/interpreter/download?message_id={message_id}&sandbox_path=...` (expected JSON with a temporary `download_url`).
+3. Fetch the resulting binary URL **only** if it is on `https://chatgpt.com/backend-api/...`; forbid untrusted cross-origin redirects. No arbitrary user/assistant-supplied external URL is fetched.
+
+These routes are **undocumented**, may be unavailable for some accounts, and are **not yet proven against live ChatGPT user or agent uploads**. An output containing only a path or expired pointer cannot be reconstructed from the text alone. Externally hosted signed URLs are unsupported in this experimental version, and appear as failures.
+
+Safety limits: at most **100** distinct references attempted, **50 MiB** per file and **200 MiB** total downloaded. Bounded stream reading prevents unbounded memory consumption for streaming responses. Downloads are sequential, abortable and report failures individually. Filenames are flattened, sanitized and numbered to avoid archive path traversal/collisions. The manifest does **not** store signed URLs or access tokens; it **does** store originating message IDs, file names and other private metadata, so the ZIP must remain private.
+
+When enabled, the archive contains:
+
+```text
+chatgpt-conversation-<id>.json
+attachments-manifest.json
+attachments/001-file.pdf
+attachments/002-agent-report.csv
+```
+
+Missing files are absent from `attachments/`, but are listed under `manifest.items[].status="failed"` with a sanitized error category. The manifest includes discovered/attempted/downloaded/failed/skipped counts and total retrieved bytes. ZIP packaging supports both DEFLATE and STORED entries without needing additional libraries. If multi-entry packaging fails, the exporter warns and uses its existing single-conversation ZIP/JSON path; it does **not** silently claim attachments were packaged.
+
+The local comparator now accepts attachment ZIPs but compares **only the root conversation JSON**, ignoring attachment binaries. It verifies the root JSON CRC32 and structural ZIP entry boundaries. This preserves the intended message-ID and full-message equality audit without making binary attachment equality claims.
+
 ## ZIP packaging
 
-The exporter creates one ZIP32 archive containing exactly one JSON file. It writes the ZIP local header, central directory and end record, uses UTF-8 filenames, checksums with CRC32, and compresses with `CompressionStream('deflate-raw')`. No third-party libraries or external services are required. If compression is unavailable or fails, it explicitly downloads **unchanged plain JSON** rather than creating a mislabeled or invalid ZIP. ZIP64 payloads (over approximately 4 GiB) are not supported.
+With attachments disabled, the exporter creates one ZIP32 archive containing exactly one JSON file. With the optional experiment enabled, it creates a multi-entry ZIP containing JSON, manifest and successfully retrieved binary files. It writes the ZIP local header, central directory and end record, uses UTF-8 filenames, checksums with CRC32, and compresses with `CompressionStream('deflate-raw')`. No third-party libraries or external services are required. If compression is unavailable or fails, it explicitly downloads **unchanged plain JSON** rather than creating a mislabeled or invalid ZIP. ZIP64 payloads (over approximately 4 GiB) are not supported.
 
 ## Privacy-preserving diagnostics
 
@@ -126,7 +155,7 @@ The report **excludes** conversation URLs, IDs, cursors, message IDs or content,
 
 `fetch_ms` measures the client-observed time to HTTP response headers, **not pure server processing**. `parse_ms` includes body reading and JSON parsing. Without server-side or network instrumentation, DNS, TLS, server computation and browser scheduling cannot be isolated. Reported percentile values summarize observations and are not statistical guarantees.
 
-For a local content-integrity comparison of two complete ZIP/JSON exports, use `node scripts/compare-exports.js <baseline> <candidate>`. The script verifies ZIP CRC32 and compares canonical message objects and order without printing IDs or contents.
+For a local **conversation-content** integrity comparison of two complete ZIP/JSON exports (including attachment-enabled ZIPs), use `node scripts/compare-exports.js <baseline> <candidate>`. The script verifies ZIP CRC32 and compares canonical message objects and order without printing IDs or contents.
 
 ## Security and operational limitations
 
