@@ -147,7 +147,7 @@ function createExportProfiler(options = {}) {
         const recordCount = pages.at(-1)?.cumulative_records ?? 0;
         return {
             profile_format: "chatgpt-export-performance-v1",
-            userscript_version: "0.3.0-beta.1",
+            userscript_version: "0.3.0-beta.2",
             created_at: startedAt,
             reported_at: new Date().toISOString(),
             completed,
