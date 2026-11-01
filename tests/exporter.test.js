@@ -497,6 +497,7 @@ function makeExportUiHarness() {
         fetch: fetchImpl
     });
     const launcher = document.getElementById("chatgpt-conversation-export-launcher");
+    const spinner = document.getElementById("chatgpt-conversation-export-spinner");
     const findButton = name => elements.filter(e =>
         e.tagName === "button" && e.textContent === name && e.isConnected
     ).at(-1);
@@ -505,7 +506,7 @@ function makeExportUiHarness() {
     ) ?? null;
     const settle = () => new Promise(resolve => setImmediate(resolve));
     return {
-        launcher, pending, findButton, visiblePanel, settle,
+        launcher, spinner, pending, findButton, visiblePanel, settle,
         get messageRequests() { return messageRequests; }
     };
 }
@@ -648,4 +649,92 @@ test("performance report action appears after export error without completed pag
     await ui.settle();
     assert.equal(performance.hidden, false);
     assert.equal(performance.disabled, false);
+});
+
+
+test("launcher spinner remains active with progress panel closed and resets on success", async () => {
+    const ui = makeExportUiHarness();
+    assert.ok(ui.spinner);
+    assert.equal(ui.spinner.style.display, "none");
+    assert.equal(ui.launcher.attributes["aria-busy"], "false");
+    assert.match(ui.spinner.style.animation, /800ms linear infinite/);
+    assert.equal(ui.spinner.attributes["aria-hidden"], "true");
+
+    ui.launcher.listeners.click();
+    await ui.settle();
+    assert.equal(ui.spinner.style.display, "inline-block");
+    assert.equal(ui.launcher.attributes["aria-busy"], "true");
+    assert.equal(ui.messageRequests, 1);
+
+    ui.findButton("Close").listeners.click();
+    assert.equal(ui.visiblePanel(), null);
+    assert.equal(ui.spinner.style.display, "inline-block");
+
+    ui.pending[0](ok(page([msg("first")], "newer", true)));
+    await ui.settle();
+    await ui.settle();
+    assert.equal(ui.visiblePanel(), null);
+    assert.equal(ui.spinner.style.display, "inline-block");
+    assert.equal(ui.messageRequests, 2);
+
+    // Reopening only the progress panel does not start a new export.
+    ui.launcher.listeners.click();
+    assert.equal(ui.messageRequests, 2);
+    assert.equal(ui.spinner.style.display, "inline-block");
+    assert.equal(ui.findButton("Cancel").disabled, false);
+
+    ui.findButton("Close").listeners.click();
+    ui.pending[1](ok(page([msg("last")], "oldest", false)));
+    await ui.settle();
+    await ui.settle();
+
+    assert.equal(ui.spinner.style.display, "none");
+    assert.equal(ui.launcher.attributes["aria-busy"], "false");
+    assert.equal(ui.visiblePanel(), null);
+});
+
+test("launcher spinner resets on HTTP error and when export is restarted", async () => {
+    const ui = makeExportUiHarness();
+    ui.launcher.listeners.click();
+    await ui.settle();
+    assert.equal(ui.spinner.style.display, "inline-block");
+
+    ui.pending[0]({ ok: false, status: 403 });
+    await ui.settle();
+    await ui.settle();
+    assert.equal(ui.spinner.style.display, "none");
+    assert.equal(ui.launcher.attributes["aria-busy"], "false");
+    assert.equal(ui.findButton("Save performance report").hidden, false);
+
+    ui.launcher.listeners.click();
+    await ui.settle();
+    assert.equal(ui.spinner.style.display, "inline-block");
+    assert.equal(ui.messageRequests, 2);
+
+    ui.pending[1](ok(page([msg("recovered")], "done", false)));
+    await ui.settle();
+    await ui.settle();
+    assert.equal(ui.spinner.style.display, "none");
+});
+
+test("launcher spinner stops after user cancellation even when panel was dismissed", async () => {
+    const ui = makeExportUiHarness();
+    ui.launcher.listeners.click();
+    await ui.settle();
+    assert.equal(ui.spinner.style.display, "inline-block");
+
+    const cancel = ui.findButton("Cancel");
+    ui.findButton("Close").listeners.click();
+    cancel.listeners.click();
+    await ui.settle();
+    await ui.settle();
+
+    // Existing mock network fetch doesn't observe the AbortSignal. The
+    // core still checks cancellation as soon as the request resolves.
+    ui.pending[0](ok(page([msg("cancelled")], "last", false)));
+    await ui.settle();
+    await ui.settle();
+    assert.equal(ui.spinner.style.display, "none");
+    assert.equal(ui.launcher.attributes["aria-busy"], "false");
+    assert.equal(ui.visiblePanel(), null);
 });
