@@ -985,75 +985,6 @@ test("performance diagnostics track batch sizes and pacing without retaining any
 });
 
 
-test("benchmark selector defaults to Recommended and exposes reference, pacing and custom controls", async () => {
-    const ui = makeExportUiHarness();
-    const button = ui.findButton("Mode");
-    assert.ok(button);
-    assert.equal(ui.modeSelect(), null);
-    button.listeners.click();
-    const select = ui.modeSelect();
-    assert.ok(select);
-    assert.equal(select.value, "experimental");
-    assert.deepEqual(Array.from(select.children, option => option.value),
-        ["stable", "pace", "fast", "experimental", "custom"]);
-    assert.equal(select.disabled, false);
-    button.listeners.click();
-    assert.equal(ui.modeSelect(), null);
-});
-
-test("switching benchmark mode starts fresh requests; same mode retains prior session", async () => {
-    const ui = makeExportUiHarness();
-    ui.findButton("Mode").listeners.click();
-    let select = ui.modeSelect();
-    select.value = "stable";
-    select.listeners.change();
-    ui.launcher.listeners.click();
-    await ui.settle();
-    assert.equal(ui.modeSelect(), null);
-    assert.equal(ui.messageRequests, 1);
-
-    ui.pending[0](ok(page([msg("first")], "finished", false)));
-    await ui.settle();
-    await ui.settle();
-    assert.equal(ui.spinner.style.display, "none");
-
-    ui.launcher.listeners.click();
-    await ui.settle();
-    await ui.settle();
-    assert.equal(ui.messageRequests, 1, "same mode uses cached complete session");
-
-    ui.findButton("Mode").listeners.click();
-    select = ui.modeSelect();
-    select.value = "experimental";
-    select.listeners.change();
-    ui.launcher.listeners.click();
-    await ui.settle();
-    assert.equal(ui.messageRequests, 2, "changing mode starts new fetch");
-    assert.equal(ui.spinner.style.display, "inline-flex");
-    ui.pending[1](ok(page([msg("first")], "finished", false)));
-    await ui.settle();
-    await ui.settle();
-    assert.equal(ui.spinner.style.display, "none");
-});
-
-test("benchmark settings are read-only during a running export", async () => {
-    const ui = makeExportUiHarness();
-    ui.launcher.listeners.click();
-    await ui.settle();
-    ui.findButton("Mode").listeners.click();
-    const select = ui.modeSelect();
-    assert.equal(select.disabled, true);
-    const initial = select.value;
-    select.value = "experimental";
-    select.listeners.change();
-    assert.equal(select.value, initial);
-    ui.pending[0](ok(page([msg("last")], "done", false)));
-    await ui.settle();
-    await ui.settle();
-    assert.equal(select.disabled, false, "mode controls unlock on completion");
-});
-
-
 test("Dots animation is local CSS with reduced-motion fallback, no rotating ring", () => {
     const entry = fs.readFileSync(path.join(
         __dirname, "../src/userscript-entry.js"
@@ -1066,139 +997,210 @@ test("Dots animation is local CSS with reduced-motion fallback, no rotating ring
 });
 
 
-test("Tampermonkey settings survive a fresh script load", async () => {
-    const storage = new Map();
-    const first = makeExportUiHarness(storage);
-    await first.settle();
-    first.findButton("Mode").listeners.click();
-    const firstSelect = first.modeSelect();
-    firstSelect.value = "stable";
-    firstSelect.listeners.change();
-    await first.settle();
-    const stored = storage.get("chatgpt-conversation-exporter.settings.v1");
-    assert.deepEqual(stored, {
-        mode: "stable", customNumTurns: 3, customDelayMs: 100
-    });
-
-    const second = makeExportUiHarness(storage);
-    await second.settle();
-    second.findButton("Mode").listeners.click();
-    assert.equal(second.modeSelect().value, "stable");
-    second.launcher.listeners.click();
-    await second.settle();
-    assert.equal(second.messageRequests, 1);
-    second.pending[0](ok(page([msg("single")], "end", false)));
-    await second.settle();
-    await second.settle();
+test("v0.2.0 compact launcher has an adjacent gear and only two numeric settings", async () => {
+    const ui = makeExportUiHarness();
+    await ui.settle();
+    const toolbar = ui.toolbar();
+    assert.ok(toolbar);
+    assert.equal(toolbar.children[0], ui.launcher);
+    assert.equal(toolbar.children[1], ui.modeButton());
+    assert.equal(ui.launcher.style.font, "11px/1.3 system-ui, sans-serif");
+    assert.equal(ui.launcher.style.padding, "6px 9px");
+    assert.equal(ui.modeButton().textContent, "⚙");
+    assert.equal(ui.modeButton().attributes["aria-label"],
+        "Export performance settings");
+    ui.modeButton().listeners.click();
+    assert.equal(ui.customTurns().value, "3");
+    assert.equal(ui.customDelay().value, "100");
+    assert.equal(ui.findButton("Save").disabled, false);
+    assert.ok(ui.findButton("Load defaults"));
+    assert.equal(ui.modeSelect, undefined, "no presets/dropdown");
+    assert.ok(ui.visiblePanel());
 });
 
-test("Greasemonkey asynchronous settings load before starting a request", async () => {
-    const storage = new Map([[
-        "chatgpt-conversation-exporter.settings.v1",
-        { mode: "custom", customNumTurns: 1, customDelayMs: 700 }
-    ]]);
-    const ui = makeExportUiHarness(storage, true);
-    ui.launcher.listeners.click();
+test("session-only edits affect next API request without saving persistently", async () => {
+    const durable = new Map();
+    const session = new Map();
+    const ui = makeExportUiHarness(durable, false, session);
     await ui.settle();
-    assert.equal(ui.messageRequests, 1);
-    ui.findButton("Mode").listeners.click();
-    assert.equal(ui.modeSelect().value, "custom");
-    assert.equal(ui.customTurns().value, "1");
-    assert.equal(ui.customDelay().value, "700");
-    assert.equal(ui.modeSelect().disabled, true);
-    ui.pending[0](ok(page([msg("one")], "last", false)));
-    await ui.settle();
-    await ui.settle();
-});
-
-test("custom settings persist and trigger fresh sessions on change", async () => {
-    const storage = new Map();
-    const ui = makeExportUiHarness(storage);
-    await ui.settle();
-    ui.findButton("Mode").listeners.click();
-    const select = ui.modeSelect();
-    select.value = "custom";
-    select.listeners.change();
-    assert.equal(ui.customTurns().disabled, false);
-    assert.equal(ui.customDelay().disabled, false);
-
-    ui.customTurns().value = "2";
-    ui.customTurns().listeners.change();
-    ui.customDelay().value = "400";
+    ui.modeButton().listeners.click();
+    ui.customTurns().value = "12";
+    ui.customTurns().listeners.input();
+    ui.customDelay().value = "650";
     ui.customDelay().listeners.change();
+    assert.equal(durable.size, 0, "editing never calls GM_setValue");
+    const ephemeral = JSON.parse(session.get(
+        "chatgpt-conversation-exporter.session-settings.v2"));
+    assert.deepEqual(ephemeral, { numTurns: 12, delay: 650 });
+    ui.launcher.listeners.click();
     await ui.settle();
-    assert.deepEqual(storage.get("chatgpt-conversation-exporter.settings.v1"), {
-        mode: "custom", customNumTurns: 2, customDelayMs: 400
-    });
+    assert.match(ui.messageUrls[0], /num_turns=12/);
+    ui.pending[0](ok(page([msg("finished")], "end", false)));
+    await ui.settle();
+    await ui.settle();
+    assert.equal(durable.size, 0);
+
+    const reloaded = makeExportUiHarness(durable, false, session);
+    await reloaded.settle();
+    reloaded.modeButton().listeners.click();
+    assert.equal(reloaded.customTurns().value, "12");
+    assert.equal(reloaded.customDelay().value, "650");
+    const newBrowserSession = makeExportUiHarness(durable, false, new Map());
+    await newBrowserSession.settle();
+    newBrowserSession.modeButton().listeners.click();
+    assert.equal(newBrowserSession.customTurns().value, "3");
+    assert.equal(newBrowserSession.customDelay().value, "100");
+});
+
+test("Save commits values to userscript storage for future sessions", async () => {
+    const durable = new Map();
+    const session = new Map();
+    const ui = makeExportUiHarness(durable, false, session);
+    await ui.settle();
+    ui.modeButton().listeners.click();
+    ui.customTurns().value = "25";
+    ui.customTurns().listeners.change();
+    ui.customDelay().value = "300";
+    ui.customDelay().listeners.change();
+    assert.equal(durable.size, 0);
+    ui.findButton("Save").listeners.click();
+    await ui.settle();
+    await ui.settle();
+    assert.deepEqual(durable.get("chatgpt-conversation-exporter.settings.v2"),
+        { numTurns: 25, delay: 300 });
+    const nextSession = makeExportUiHarness(durable, false, new Map());
+    await nextSession.settle();
+    nextSession.modeButton().listeners.click();
+    assert.equal(nextSession.customTurns().value, "25");
+    assert.equal(nextSession.customDelay().value, "300");
+});
+
+test("Load defaults changes session only; Save afterward persists defaults", async () => {
+    const key = "chatgpt-conversation-exporter.settings.v2";
+    const durable = new Map([[key, { numTurns: 6, delay: 333 }]]);
+    const session = new Map();
+    const ui = makeExportUiHarness(durable, false, session);
+    await ui.settle();
+    ui.modeButton().listeners.click();
+    assert.equal(ui.customTurns().value, "6");
+    ui.findButton("Load defaults").listeners.click();
+    assert.equal(ui.customTurns().value, "3");
+    assert.equal(ui.customDelay().value, "100");
+    assert.deepEqual(durable.get(key), { numTurns: 6, delay: 333 });
+    const reloaded = makeExportUiHarness(durable, false, session);
+    await reloaded.settle();
+    reloaded.modeButton().listeners.click();
+    assert.equal(reloaded.customTurns().value, "3");
+    ui.findButton("Save").listeners.click();
+    await ui.settle();
+    await ui.settle();
+    assert.deepEqual(durable.get(key), { numTurns: 3, delay: 100 });
+    const freshSession = makeExportUiHarness(durable);
+    await freshSession.settle();
+    freshSession.modeButton().listeners.click();
+    assert.equal(freshSession.customTurns().value, "3");
+});
+
+test("legacy v0.1.12 stored presets are migrated without writing on load", async () => {
+    const durable = new Map([[
+        "chatgpt-conversation-exporter.settings.v1",
+        { mode: "custom", customNumTurns: 7, customDelayMs: 480 }
+    ]]);
+    const ui = makeExportUiHarness(durable, false, new Map());
+    await ui.settle();
+    ui.modeButton().listeners.click();
+    assert.equal(ui.customTurns().value, "7");
+    assert.equal(ui.customDelay().value, "480");
+    assert.equal(durable.has("chatgpt-conversation-exporter.settings.v2"),
+        false, "read-only migration until explicit Save");
+});
+
+test("asynchronous Greasemonkey reads restore values before requests", async () => {
+    const durable = new Map([[
+        "chatgpt-conversation-exporter.settings.v2",
+        { numTurns: 8, delay: 800 }
+    ]]);
+    const ui = makeExportUiHarness(durable, true, new Map());
     ui.launcher.listeners.click();
     await ui.settle();
     assert.equal(ui.messageRequests, 1);
+    assert.match(ui.messageUrls[0], /num_turns=8/);
+    ui.pending[0](ok(page([msg("last")], "end", false)));
+    await ui.settle();
+    await ui.settle();
+});
+
+test("custom settings cannot change during export and re-enable after completion", async () => {
+    const ui = makeExportUiHarness(new Map());
+    ui.launcher.listeners.click();
+    await ui.settle();
+    ui.modeButton().listeners.click();
+    assert.equal(ui.customTurns().disabled, true);
+    assert.equal(ui.customDelay().disabled, true);
+    assert.equal(ui.findButton("Save").disabled, true);
+    ui.customTurns().value = "25";
+    ui.customTurns().listeners.input();
+    assert.equal(ui.customTurns().value, "3");
+    ui.pending[0](ok(page([msg("last")], "end", false)));
+    await ui.settle();
+    await ui.settle();
+    assert.equal(ui.customTurns().disabled, false);
+    assert.equal(ui.findButton("Save").disabled, false);
+});
+
+test("invalid values do not alter current configuration or permanent storage", async () => {
+    const durable = new Map();
+    const ui = makeExportUiHarness(durable);
+    await ui.settle();
+    ui.modeButton().listeners.click();
+    for (const [turns, delay] of [
+        ["0", "100"], ["1001", "100"], ["2.5", "100"],
+        ["2", "-1"], ["2", "60001"], ["2", ""]
+    ]) {
+        ui.customTurns().value = turns;
+        ui.customDelay().value = delay;
+        ui.findButton("Save").listeners.click();
+        await ui.settle();
+        assert.equal(durable.size, 0, "invalid edits may not be saved");
+    }
+    ui.customTurns().value = "4";
+    ui.customDelay().value = "0";
+    ui.customDelay().listeners.change();
+    assert.equal(durable.size, 0);
+    ui.launcher.listeners.click();
+    await ui.settle();
+    assert.match(ui.messageUrls[0], /num_turns=4/);
     ui.pending[0](ok(page([msg("one")], "end", false)));
     await ui.settle();
     await ui.settle();
-
-    ui.findButton("Mode").listeners.click();
-    ui.customDelay().value = "500";
-    ui.customDelay().listeners.change();
-    ui.launcher.listeners.click();
-    await ui.settle();
-    assert.equal(ui.messageRequests, 2, "numeric change invalidates old API session");
-    ui.pending[1](ok(page([msg("one")], "end", false)));
-    await ui.settle();
-    await ui.settle();
-
-    const reload = makeExportUiHarness(storage);
-    await reload.settle();
-    reload.findButton("Mode").listeners.click();
-    assert.equal(reload.modeSelect().value, "custom");
-    assert.equal(reload.customTurns().value, "2");
-    assert.equal(reload.customDelay().value, "500");
 });
 
-test("invalid custom values and invalid stored settings are rejected safely", async () => {
-    const storage = new Map([[
-        "chatgpt-conversation-exporter.settings.v1",
-        { mode: "custom", customNumTurns: 900, customDelayMs: -9 }
-    ]]);
-    const ui = makeExportUiHarness(storage);
+test("rapid Greasemonkey Save clicks serialize and persist last values", async () => {
+    const durable = new Map();
+    const ui = makeExportUiHarness(durable, true);
     await ui.settle();
-    ui.findButton("Mode").listeners.click();
-    assert.equal(ui.modeSelect().value, "experimental");
-    ui.modeSelect().value = "custom";
-    ui.modeSelect().listeners.change();
+    ui.modeButton().listeners.click();
+    ui.customTurns().value = "4";
+    ui.findButton("Save").listeners.click();
+    ui.customTurns().value = "5";
+    ui.findButton("Save").listeners.click();
     await ui.settle();
-
-    for (const [turns, delay] of [
-        ["0", "100"], ["4", "100"], ["1.5", "100"],
-        ["2", "-1"], ["2", "2001"], ["2", ""]
-    ]) {
-        const current = storage.get("chatgpt-conversation-exporter.settings.v1");
-        ui.customTurns().value = turns;
-        ui.customDelay().value = delay;
-        ui.customDelay().listeners.change();
-        await ui.settle();
-        assert.deepEqual(storage.get("chatgpt-conversation-exporter.settings.v1"),
-            current, "invalid numbers must not persist");
-        assert.equal(ui.customTurns().value, "3");
-        assert.equal(ui.customDelay().value, "100");
-    }
+    await ui.settle();
+    await ui.settle();
+    assert.deepEqual(durable.get("chatgpt-conversation-exporter.settings.v2"),
+        { numTurns: 5, delay: 100 });
 });
 
-
-test("rapid Greasemonkey async preference updates persist the newest mode", async () => {
-    const storage = new Map();
-    const ui = makeExportUiHarness(storage, true);
-    await ui.settle();
-    ui.findButton("Mode").listeners.click();
-    const select = ui.modeSelect();
-    select.value = "stable";
-    select.listeners.change();
-    select.value = "fast";
-    select.listeners.change();
-    select.value = "experimental";
-    select.listeners.change();
-    await ui.settle();
-    await ui.settle();
-    assert.equal(storage.get("chatgpt-conversation-exporter.settings.v1").mode,
-        "experimental", "saved settings must reflect last change");
+test("export core supports configurable batches higher than three", async () => {
+    const urls = [];
+    const exporter = session(async url => {
+        if (url === "/api/auth/session") return ok({});
+        urls.push(url);
+        return ok(page([msg("one")], "end", false));
+    }, { numTurns: 16, requestDelayMs: 0 });
+    const result = await exporter.run();
+    assert.equal(result.local_export_audit.pagination_verified, true);
+    assert.match(urls[0], /num_turns=16/);
+    assert.throws(() => session(async () => ok({}),
+        { numTurns: 1001 }), /numTurns/);
 });
