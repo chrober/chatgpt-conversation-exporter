@@ -11,11 +11,11 @@ const CONVERSATION_PATH = new RegExp("/c/(" + UUID + ")(?:/|$)", "i");
 function parseConversationUrl(value) {
     const url = new URL(value);
     if (url.origin !== "https://chatgpt.com") {
-        throw new Error("Der Export funktioniert nur auf https://chatgpt.com.");
+        throw new Error("The exporter only works on https://chatgpt.com.");
     }
     const match = url.pathname.match(CONVERSATION_PATH);
     if (!match) {
-        throw new Error("Bitte einen Original-Chat (/c/<ID>) öffnen, keinen Share-Link.");
+        throw new Error("Open an original conversation (/c/<ID>), not a shared link.");
     }
     return {
         conversationId: match[1].toLowerCase(),
@@ -24,7 +24,7 @@ function parseConversationUrl(value) {
 }
 
 function abortError() {
-    const error = new Error("Export abgebrochen.");
+    const error = new Error("Export cancelled.");
     error.name = "AbortError";
     return error;
 }
@@ -52,24 +52,24 @@ function wait(ms, signal) {
 
 function validatePage(page) {
     if (!page || !Array.isArray(page.messages) || page.messages.length === 0) {
-        throw new Error("Ungültige oder leere Nachrichtenseite; kein Teil-Export.");
+        throw new Error("Invalid or empty API page; partial export refused.");
     }
     if (!page.page_info ||
         typeof page.page_info.has_previous_page !== "boolean") {
-        throw new Error("Paginierungsstatus fehlt; kein Teil-Export.");
+        throw new Error("Pagination information is missing; partial export refused.");
     }
     if (page.page_info.has_previous_page && !page.page_info.start_cursor) {
-        throw new Error("Start-Cursor fehlt; kein Teil-Export.");
+        throw new Error("Missing start cursor; partial export refused.");
     }
     if (page.messages.some(item => !item || typeof item.id !== "string" || !item.id)) {
-        throw new Error("Nachricht ohne eindeutige ID; kein Teil-Export.");
+        throw new Error("Message record has no valid ID; partial export refused.");
     }
     return page.page_info;
 }
 
 function assembleExport(pages, conversationId, sourceUrl) {
     if (!pages.length || pages.at(-1).page_info?.has_previous_page !== false) {
-        throw new Error("Paginierungsende nicht bestätigt; kein Download.");
+        throw new Error("Pagination end not confirmed; download refused.");
     }
 
     const messages = [];
@@ -85,7 +85,7 @@ function assembleExport(pages, conversationId, sourceUrl) {
             if (previous) {
                 duplicates++;
                 if (JSON.stringify(previous) !== JSON.stringify(message)) {
-                    throw new Error("Widersprüchliche Nachrichten-ID: " + message.id);
+                    throw new Error("Conflicting message ID: " + message.id);
                 }
                 continue;
             }
@@ -138,7 +138,7 @@ function createExportSession(options) {
     } = options;
 
     if (typeof fetchImpl !== "function") {
-        throw new Error("fetchImpl fehlt.");
+        throw new Error("fetchImpl is required.");
     }
 
     const { conversationId, sourceUrl } = parseConversationUrl(suppliedUrl);
@@ -164,7 +164,7 @@ function createExportSession(options) {
             signal
         });
         if (!response.ok) {
-            throw new Error("Sitzung nicht verfügbar: HTTP " + response.status);
+            throw new Error("Session unavailable: HTTP " + response.status);
         }
         const session = await response.json();
         const token = session.accessToken ?? session.access_token;
@@ -195,7 +195,7 @@ function createExportSession(options) {
                 });
 
                 if (!response.ok) {
-                    const error = new Error("Nachrichtenabruf: HTTP " + response.status);
+                    const error = new Error("Message request: HTTP " + response.status);
                     error.retryable = TEMPORARY_HTTP_STATUSES.has(response.status);
                     throw error;
                 }
@@ -211,7 +211,7 @@ function createExportSession(options) {
     }
 
     async function run({ signal, onProgress, checkContext } = {}) {
-        if (running) throw new Error("Export läuft bereits.");
+        if (running) throw new Error("Export already running.");
         running = true;
         try {
             assertNotAborted(signal);
@@ -227,7 +227,7 @@ function createExportSession(options) {
                 assertNotAborted(signal);
                 if (checkContext) checkContext(conversationId);
                 if (pages.length >= maxPages) {
-                    throw new Error("Maximale Seitenzahl erreicht; kein Teil-Export.");
+                    throw new Error("Maximum API page limit reached; partial export refused.");
                 }
                 const page = await requestPage(headers, nextCursor, signal);
                 const info = validatePage(page);
@@ -235,7 +235,7 @@ function createExportSession(options) {
                 assertNotAborted(signal);
 
                 if (info.start_cursor && seenCursors.has(info.start_cursor)) {
-                    throw new Error("Wiederholter Cursor; kein Teil-Export.");
+                    throw new Error("Repeated page cursor; partial export refused.");
                 }
                 if (info.start_cursor) seenCursors.add(info.start_cursor);
 
