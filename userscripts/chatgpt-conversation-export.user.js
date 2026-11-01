@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Conversation Exporter
 // @namespace    https://github.com/chrober/chatgpt-conversation-exporter
-// @version      0.2.2
+// @version      0.2.3
 // @author       Christoph O'Bermair
 // @description  Export the current ChatGPT conversation as JSON.
 // @match        https://chatgpt.com/*
@@ -461,7 +461,7 @@ function createExportProfiler(options = {}) {
         const recordCount = pages.at(-1)?.cumulative_records ?? 0;
         return {
             profile_format: "chatgpt-export-performance-v1",
-            userscript_version: "0.2.2",
+            userscript_version: "0.2.3",
             created_at: startedAt,
             reported_at: new Date().toISOString(),
             completed,
@@ -1172,10 +1172,12 @@ if (typeof module !== "undefined" && module.exports) {
     }
 
     function formatDuration(milliseconds) {
-        const tenths = Math.max(0, Math.round(milliseconds / 100));
-        const hours = Math.floor(tenths / 36000);
-        const minutes = Math.floor(tenths / 600) % 60;
-        const seconds = ((tenths % 600) / 10).toFixed(1);
+        // Round once, then split the total into units. This handles carries
+        // correctly (e.g. 59.8s becomes 1m 0s, not 0m 60s).
+        const totalSeconds = Math.max(0, Math.round(milliseconds / 1000));
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor(totalSeconds / 60) % 60;
+        const seconds = totalSeconds % 60;
         if (hours) return hours + "h " + minutes + "m " + seconds + "s";
         if (minutes) return minutes + "m " + seconds + "s";
         return seconds + "s";
@@ -1268,7 +1270,7 @@ if (typeof module !== "undefined" && module.exports) {
                     report(
                         "Fetching conversation ...",
                         info.pages + " API pages, " + info.records +
-                        " message records; checking for older pages"
+                        " message records"
                     );
                 }
             });
