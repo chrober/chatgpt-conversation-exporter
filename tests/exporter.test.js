@@ -506,6 +506,7 @@ function makeExportUiHarness() {
     });
     const launcher = document.getElementById("chatgpt-conversation-export-launcher");
     const spinner = document.getElementById("chatgpt-conversation-export-spinner");
+    const modeSelect = () => document.getElementById("chatgpt-conversation-export-mode");
     const findButton = name => elements.filter(e =>
         e.tagName === "button" && e.textContent === name && e.isConnected
     ).at(-1);
@@ -514,7 +515,7 @@ function makeExportUiHarness() {
     ) ?? null;
     const settle = () => new Promise(resolve => setImmediate(resolve));
     return {
-        launcher, spinner, pending, findButton, visiblePanel, settle,
+        launcher, spinner, pending, findButton, modeSelect, visiblePanel, settle,
         get messageRequests() { return messageRequests; }
     };
 }
@@ -937,4 +938,72 @@ test("performance diagnostics track batch sizes and pacing without retaining any
     for (const sensitive of [ID, "private-cursor", "private-token"]) {
         assert.equal(json.includes(sensitive), false);
     }
+});
+
+
+test("benchmark selector defaults to Fast and exposes reference, pacing and 3-turn experiments", async () => {
+    const ui = makeExportUiHarness();
+    const button = ui.findButton("Mode");
+    assert.ok(button);
+    assert.equal(ui.modeSelect(), null);
+    button.listeners.click();
+    const select = ui.modeSelect();
+    assert.ok(select);
+    assert.equal(select.value, "fast");
+    assert.deepEqual(Array.from(select.children, option => option.value),
+        ["stable", "pace", "fast", "experimental"]);
+    assert.equal(select.disabled, false);
+    button.listeners.click();
+    assert.equal(ui.modeSelect(), null);
+});
+
+test("switching benchmark mode starts fresh requests; same mode retains prior session", async () => {
+    const ui = makeExportUiHarness();
+    ui.findButton("Mode").listeners.click();
+    let select = ui.modeSelect();
+    select.value = "stable";
+    select.listeners.change();
+    ui.launcher.listeners.click();
+    await ui.settle();
+    assert.equal(ui.modeSelect(), null);
+    assert.equal(ui.messageRequests, 1);
+
+    ui.pending[0](ok(page([msg("first")], "finished", false)));
+    await ui.settle();
+    await ui.settle();
+    assert.equal(ui.spinner.style.display, "none");
+
+    ui.launcher.listeners.click();
+    await ui.settle();
+    await ui.settle();
+    assert.equal(ui.messageRequests, 1, "same mode uses cached complete session");
+
+    ui.findButton("Mode").listeners.click();
+    select = ui.modeSelect();
+    select.value = "experimental";
+    select.listeners.change();
+    ui.launcher.listeners.click();
+    await ui.settle();
+    assert.equal(ui.messageRequests, 2, "changing mode starts new fetch");
+    assert.equal(ui.spinner.style.display, "inline-block");
+    ui.pending[1](ok(page([msg("first")], "finished", false)));
+    await ui.settle();
+    await ui.settle();
+    assert.equal(ui.spinner.style.display, "none");
+});
+
+test("benchmark settings are read-only during a running export", async () => {
+    const ui = makeExportUiHarness();
+    ui.launcher.listeners.click();
+    await ui.settle();
+    ui.findButton("Mode").listeners.click();
+    const select = ui.modeSelect();
+    assert.equal(select.disabled, true);
+    const initial = select.value;
+    select.value = "experimental";
+    select.listeners.change();
+    assert.equal(select.value, initial);
+    ui.pending[0](ok(page([msg("last")], "done", false)));
+    await ui.settle();
+    await ui.settle();
 });
