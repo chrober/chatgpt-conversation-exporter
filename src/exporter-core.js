@@ -142,11 +142,15 @@ function createExportSession(options) {
     if (typeof fetchImpl !== "function") {
         throw new Error("fetchImpl is required.");
     }
-    if (!Number.isInteger(numTurns) || numTurns < 1 || numTurns > 3) {
-        throw new RangeError("numTurns must be an integer between 1 and 3.");
+    // Do not artificially cap batching at the previously tested 3 turns.
+    // A generous safety bound guards against accidental multi-million-turn
+    // requests; actual backend limits are enforced by existing retry logic.
+    if (!Number.isInteger(numTurns) || numTurns < 1 || numTurns > 1000) {
+        throw new RangeError("numTurns must be an integer between 1 and 1000.");
     }
-    if (!Number.isInteger(requestDelayMs) || requestDelayMs < 0) {
-        throw new RangeError("requestDelayMs must be a nonnegative integer.");
+    if (!Number.isInteger(requestDelayMs) ||
+        requestDelayMs < 0 || requestDelayMs > 60000) {
+        throw new RangeError("requestDelayMs must be an integer between 0 and 60000.");
     }
 
     const { conversationId, sourceUrl } = parseConversationUrl(suppliedUrl);
