@@ -1389,7 +1389,7 @@ test("attachment-enabled UI exports ZIP with a manifest and counts retrieved fil
     await ui.settle();
     await ui.settle();
     assert.equal(ui.messageRequests, 2, "file metadata request should follow conversation");
-    assert.match(ui.messageUrls[1], /\/backend-api\/files\/download\//);
+    assert.match(ui.messageUrls[1], /\/backend-api\/files\/file_[^/]+\/download$/);
     ui.pending[1]({
         ok: true, status: 200,
         json: async () => ({
