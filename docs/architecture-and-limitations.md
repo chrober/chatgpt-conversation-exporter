@@ -8,7 +8,7 @@ Ein dediziertes Greasemonkey-/Tampermonkey-Userscript ruft genau den **aktuell g
 
 - `src/exporter-core.js`: URL-/ID-Prüfung, Sitzungsheader, kleine sequentielle Seitenabfragen, Retries, Validierung, In-Memory-Fortsetzung, Zusammenführung und Audit. Ohne Browser-UI testbar.
 - `src/profiling.js`: zeitbasierte Messung von Sitzungs-/Nachrichten-HTTP-Antworten, JSON-Parsing, Seiten-/Retry-Statistik, Export-Serialisierung und separat herunterladbarem redigiertem Diagnosebericht. Keine Rohdaten oder Identifikatoren.
-- `src/userscript-entry.js`: `GM_registerMenuCommand` für Tampermonkey bzw. `GM.registerMenuCommand` für Greasemonkey, zusätzlich ein fester in-Page-Startbutton **unten rechts** und ein darüber platziertes Statusfenster (englische Meldungen), Browser-Kontextprüfung im Klickmoment, Statusfenster, Abbruch über `AbortController`, Blob-/Browser-Download.
+- `src/userscript-entry.js`: persistenter UI-Status unabhängig vom DOM-Statusfenster; **Close** entfernt nur das Fenster, nicht den laufenden Export. Fortschritt wird im Speicher weitergeführt, ein erneuter Launcher-Klick bei aktivem Export öffnet das Fenster mit aktivem Cancel, ohne erneut abzurufen. `GM_registerMenuCommand` für Tampermonkey bzw. `GM.registerMenuCommand` für Greasemonkey, zusätzlich ein fester in-Page-Startbutton **unten rechts** und ein darüber platziertes Statusfenster (englische Meldungen), Browser-Kontextprüfung im Klickmoment, Statusfenster, Abbruch über `AbortController`, Blob-/Browser-Download.
 - `scripts/build-userscript.js`: deterministische Zusammenführung der Quellen mit Userscript-Metadaten; keine Runtime-CDNs, keine `@require`-Abhängigkeiten.
 - `userscripts/chatgpt-conversation-export.user.js`: **installierbares, generiertes Artefakt**, nicht direkt editieren.
 - `tests/exporter.test.js`: simulierte API-Antworten, keine realen Chat- oder Sitzungsdaten.
@@ -84,10 +84,10 @@ Das JSON-Beispiel ist eine **Formillustration**, keine realistische vollständig
 - Kein Export ohne expliziten Klick auf Menüeintrag **oder** Export-Button. Der in-Page-Button ist auf `chatgpt.com` auch außerhalb einer Unterhaltung sichtbar; vor dem Start validiert der Exporter die Original-Chat-URL.
 - Kein externer Code oder Dienst; JSON als lokaler Blob-Download.
 - Die exportierten Daten können sensible Inhalte enthalten. Keine echten Exporte in Git, Issues oder CI legen. Alle Tests verwenden erfundene IDs und Nachrichten.
-- Der Tampermonkey-Export unter Firefox ist für V0.1.1 praktisch bestätigt. Die Profiling- und Layoutänderungen von V0.1.2 sind noch nicht im Browser abgenommen.
+- Der Tampermonkey-Export unter Firefox ist für V0.1.1 praktisch bestätigt. Die neue Close-/Reopen-Korrektur von V0.1.5 benötigt eine erneute Browserprüfung.
 
 ## Bisherige Evidenz
 
 Der **Konsolen-V2-Exporter** (nicht die Greasemonkey-Fassung) wurde am 31.10.2026 für einen sehr langen technischen Chat zweimal erfolgreich verwendet: **64 Seiten, 4.970 eindeutige Datensätze, 0 Duplikate, 55,35 MiB**, Paginierung beendet. Der nicht-paginierte Conversation-Endpunkt scheiterte mit `HTTP 500 {"detail":"Request timeout"}`. Die automatische URL-Erkennung wurde separat im Browser bestätigt.
 
-Die abschließende Browser-Abnahme der neuen Version 0.1.2 ist der nächste Schritt.
+Der Export wurde unter Tampermonkey in Firefox praktisch bestätigt. Für die neue Version 0.1.5 steht noch die spezifische Browser-Abnahme von **Close**, Wiederöffnen und **Cancel** aus.
