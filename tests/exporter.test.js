@@ -237,7 +237,10 @@ test("the in-page launcher exists even without a userscript menu API", () => {
     let exported = false;
     const document = {
         body: { appendChild(node) {
-            if (node.id === "chatgpt-conversation-export-launcher") launcher = node;
+            const children = node.children || [];
+            launcher = node.id === "chatgpt-conversation-export-launcher" ?
+                node : children.find(child =>
+                    child.id === "chatgpt-conversation-export-launcher");
         } },
         getElementById: () => null,
         createElement: () => ({
@@ -437,7 +440,8 @@ test("Cancel is replaced by Save performance report on completion", async () => 
 });
 
 
-function makeExportUiHarness(storage = null, useAsyncStorage = false) {
+function makeExportUiHarness(storage = null, useAsyncStorage = false,
+    browserSession = new Map()) {
     const code = fs.readFileSync(path.join(
         __dirname, "../userscripts/chatgpt-conversation-export.user.js"
     ), "utf8");
@@ -447,6 +451,7 @@ function makeExportUiHarness(storage = null, useAsyncStorage = false) {
     urls.createObjectURL = () => "blob:mock";
     urls.revokeObjectURL = () => {};
     let messageRequests = 0;
+    const messageUrls = [];
 
     function setConnected(node, connected) {
         node.isConnected = connected;
@@ -489,6 +494,7 @@ function makeExportUiHarness(storage = null, useAsyncStorage = false) {
             return { ok: true, status: 200, json: async () => ({}) };
         }
         messageRequests++;
+        messageUrls.push(url);
         return await new Promise(resolve => { pending.push(resolve); });
     };
     const globals = {
@@ -496,7 +502,13 @@ function makeExportUiHarness(storage = null, useAsyncStorage = false) {
         URL: urls,
         URLSearchParams,
         TextEncoder,
-        window: { location: { origin: "https://chatgpt.com", pathname: "/c/" + ID } },
+        window: {
+            location: { origin: "https://chatgpt.com", pathname: "/c/" + ID },
+            sessionStorage: {
+                getItem: key => browserSession.has(key) ? browserSession.get(key) : null,
+                setItem: (key, value) => browserSession.set(key, String(value))
+            }
+        },
         Blob,
         AbortController,
         performance,
@@ -524,7 +536,10 @@ function makeExportUiHarness(storage = null, useAsyncStorage = false) {
     vm.runInNewContext(code, globals);
     const launcher = document.getElementById("chatgpt-conversation-export-launcher");
     const spinner = document.getElementById("chatgpt-conversation-export-spinner");
-    const modeSelect = () => document.getElementById("chatgpt-conversation-export-mode");
+    const modeButton = () =>
+        document.getElementById("chatgpt-conversation-export-mode-button");
+    const toolbar = () =>
+        document.getElementById("chatgpt-conversation-export-toolbar");
     const customTurns = () =>
         document.getElementById("chatgpt-conversation-export-custom-turns");
     const customDelay = () =>
@@ -537,8 +552,8 @@ function makeExportUiHarness(storage = null, useAsyncStorage = false) {
     ) ?? null;
     const settle = () => new Promise(resolve => setImmediate(resolve));
     return {
-        launcher, spinner, pending, findButton, modeSelect, customTurns,
-        customDelay, visiblePanel, settle,
+        launcher, spinner, pending, findButton, modeButton, toolbar, customTurns,
+        customDelay, visiblePanel, settle, browserSession, messageUrls,
         get messageRequests() { return messageRequests; }
     };
 }
