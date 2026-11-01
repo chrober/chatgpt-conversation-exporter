@@ -34,6 +34,8 @@ jobs:
       - name: Syntax and deterministic build
         run: |
           node --check src/exporter-core.js
+          node --check src/profiling.js
+          node --check src/compression.js
           node --check src/userscript-entry.js
           node --check userscripts/chatgpt-conversation-export.user.js
           node scripts/build-userscript.js --check
