@@ -348,6 +348,10 @@ test("Cancel is replaced by Save performance report on completion", async () => 
     ), "utf8");
 
     const elements = [];
+    function setConnected(node, value) {
+        node.isConnected = value;
+        for (const child of node.children) setConnected(child, value);
+    }
     function node(tagName) {
         const element = {
             tagName,
@@ -361,7 +365,7 @@ test("Cancel is replaced by Save performance report on completion", async () => 
             addEventListener(type, cb) { this.listeners[type] = cb; },
             appendChild(child) {
                 this.children.push(child);
-                child.isConnected = this.isConnected;
+                setConnected(child, this.isConnected);
             },
             remove() { this.isConnected = false; },
             click() {}
