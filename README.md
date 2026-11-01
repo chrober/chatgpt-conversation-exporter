@@ -2,14 +2,14 @@
 
 Ein eigenständiges **Greasemonkey-/Tampermonkey-Userscript** zum lokalen JSON-Export **einer einzelnen, aktuell geöffneten Original-ChatGPT-Unterhaltung**. Kein Gesamtexport des Kontos und kein automatischer Export bei jedem Seitenaufruf.
 
-> **Status: Entwicklungsfassung 0.1.11 auf Feature-Branch.** Die zugrundeliegende Browser-Konsolen-Version wurde praktisch bestätigt. Die Tampermonkey-Version wurde unter Firefox praktisch erprobt. Die Modusauswahl für Benchmarks benötigt noch einen Firefox-/Tampermonkey-Test.
+> **Status: Entwicklungsfassung 0.1.12 auf Feature-Branch.** Die zugrundeliegende Browser-Konsolen-Version wurde praktisch bestätigt. Die Tampermonkey-Version wurde unter Firefox praktisch erprobt. Die neuen persistenten Einstellungen benötigen noch einen Firefox-/Tampermonkey-Smoke-Test.
 
 ## Installation und Bedienung
 
 1. Für Firefox **Tampermonkey** (oder Greasemonkey 4.11+) installieren.
-2. Die Datei [`userscripts/chatgpt-conversation-export.user.js`](userscripts/chatgpt-conversation-export.user.js) aus diesem Branch installieren. [Direktlink zur Raw-Datei](https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/refs/heads/feat/greasemonkey-single-conversation-export/userscripts/chatgpt-conversation-export.user.js). **Version 0.1.11:** Eine bereits installierte ältere Version aktualisieren oder ersetzen, nicht zusätzlich als zweites aktives Script installieren.
+2. Die Datei [`userscripts/chatgpt-conversation-export.user.js`](userscripts/chatgpt-conversation-export.user.js) aus diesem Branch installieren. [Direktlink zur Raw-Datei](https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/refs/heads/feat/greasemonkey-single-conversation-export/userscripts/chatgpt-conversation-export.user.js). **Version 0.1.12:** Eine bereits installierte ältere Version aktualisieren oder ersetzen, nicht zusätzlich als zweites aktives Script installieren.
 3. Auf `https://chatgpt.com` anmelden und **einen Original-Chat** öffnen: `/c/<uuid>` oder `/g/.../c/<uuid>`. Nach Installation/Update den Chat-Tab **neu laden**, um das neue Script auszuführen.
-4. Unten rechts auf der ChatGPT-Seite **„Export chat as JSON“** klicken. Für kontrollierte Performance-Versuche zuvor über den kleinen **Mode**-Button links daneben die Abfrageeinstellungen wählen. **Fast (2 turns / 100 ms)** ist vorausgewählt. Weitere Optionen: **Reference (1/250)**, **Pacing test (2/250)** und **Experimental (3/100)**. Ein Moduswechsel startet beim nächsten Export einen neuen API-Abruf; bei unverändertem Modus bleibt die bestehende Tab-Sitzung für Fortsetzung und erneuten ZIP-Download erhalten. Alternativ den Befehl **„Export current chat as JSON“** im Userscript-Manager-Menü wählen, falls dieser angeboten wird. Der kleine Pfeil neben dem installierten Script in Tampermonkey öffnet **nur dessen Verwaltungsmenü**, nicht den Export.
+4. Unten rechts auf der ChatGPT-Seite **„Export chat as JSON“** klicken. Für kontrollierte Performance-Versuche zuvor über den kleinen **Mode**-Button links daneben die Abfrageeinstellungen wählen. **Recommended (3 Turns / 100 ms)** ist als Standard vorausgewählt. Daneben stehen **Reference (1/250)**, **Pacing test (2/250)**, **Previous Fast (2/100)** und **Custom** mit frei einstellbaren Werten zur Verfügung. Die Auswahl wird vom Userscript-Manager dauerhaft gespeichert und beim nächsten Seitenaufruf wiederhergestellt. Ein Moduswechsel startet beim nächsten Export einen neuen API-Abruf; bei unverändertem Modus bleibt die bestehende Tab-Sitzung für Fortsetzung und erneuten ZIP-Download erhalten. Alternativ den Befehl **„Export current chat as JSON“** im Userscript-Manager-Menü wählen, falls dieser angeboten wird. Der kleine Pfeil neben dem installierten Script in Tampermonkey öffnet **nur dessen Verwaltungsmenü**, nicht den Export.
 5. Das Statusfenster oberhalb des Export-Buttons zeigt **„API pages“** und **„message records“** an. **Cancel** unterbricht den Abruf, **Export chat as JSON** setzt ihn im selben Tab fort. **Close schließt ausschließlich das Statusfenster – nicht den laufenden Export.** Es bleibt auch bei späteren Fortschrittsmeldungen geschlossen; der Activity-Indicator mit drei animierten Punkten (**Dots**) im Hauptbutton zeigt weiterhin die Aktivität an. Während eines laufenden Exports öffnet ein Klick auf **Export chat as JSON** das Statusfenster erneut, ohne einen zweiten Export zu starten; **Cancel** ist dabei weiterhin aktiv. Während des Exports erscheint ausschließlich **Cancel**; nach Erfolg, Fehler oder Abbruch wird dieser Button ausgeblendet und an seiner Stelle **Save performance report** angezeigt. **Close** bleibt durchgehend sichtbar.
 6. Nach bestätigtem Paginierungsende wird standardmäßig ein **ZIP-Archiv** `chatgpt-conversation-<uuid>.zip` heruntergeladen, das eine vollständige `chatgpt-conversation-<uuid>.json` enthält. Bei fehlender oder gescheiterter browsernativer ZIP-Unterstützung folgt ein ausdrücklich gekennzeichneter **unkomprimierter `.json`-Fallback**. Die Datei nach dem Download kontrollieren.
 
@@ -31,14 +31,17 @@ Exitcodes: `0` = identisch, `1` = Unterschied, `2` = ungültige Datei/Fehler. Be
 
 ## Kontrollierte A/B-Benchmarks
 
-Das Dropdown hinter **Mode** erlaubt vier Kombinationen (Turns pro API-Abruf / Pause zwischen Seiten):
+Das Dropdown hinter **Mode** bietet vier Presets und zusätzlich **Custom** (Turns pro API-Abruf / Pause zwischen Seiten). **Die Einstellung wird automatisch gespeichert und nach einem Browser- oder Tab-Neustart wieder geladen.**
 
 | Einstellung | `num_turns` | Pause | Zweck |
 | --- | ---: | ---: | --- |
 | Reference | 1 | 250 ms | Konservative Vergleichsbasis |
 | Pacing test | 2 | 250 ms | Pauseneffekt getrennt untersuchen |
-| **Fast (Standard)** | **2** | **100 ms** | Bewährter bisheriger Fast-Modus |
-| Experimental | 3 | 100 ms | Weitere Bündelung vorsichtig prüfen |
+| Previous Fast | 2 | 100 ms | Bewährter vorheriger Fast-Modus |
+| **Recommended (Standard)** | **3** | **100 ms** | Aktuell schnellste gemessene, inhaltlich verifizierte Einstellung |
+| Custom | 1–3 | 0–2000 ms | Eigene Parameter innerhalb getesteter Batch-Grenzen |
+
+Die Eingabe im **Custom**-Modus erfolgt über zwei Zahlenfelder: **Turns (1–3)** und **Delay (0–2000 ms)**; nur ganze Werte sind erlaubt. Jede gültige Änderung wird gespeichert. Gespeichert werden **nur drei nicht-sensitive Einstellungswerte** (Preset-Name, Custom-Turns, Custom-Pause) mit `GM_getValue`/`GM_setValue` unter Tampermonkey beziehungsweise `GM.getValue`/`GM.setValue` unter Greasemonkey. **Es werden weder Conversation-IDs noch Chat-Inhalte in diesen Einstellungen gespeichert.** Bei fehlender oder fehlerhafter Speicherung meldet das Fenster dies und verwendet die Werte lediglich für die aktuelle Seite.
 
 Die Auswahl ist nur **außerhalb eines laufenden Exports** veränderbar. Ein Wechsel verwirft den bisher nur im Tab gespeicherten API-Zwischenstand **beim nächsten Start** und ruft den Chat erneut ab; bei bereits laufendem Export ist die Modusauswahl gesperrt. Für wiederholte Messungen derselben Einstellung den ChatGPT-Tab neu laden, damit kein bereits abgeschlossener Export aus dem Speicher erneut als ZIP erzeugt wird. Die unveränderte Cursor-/Integritätsprüfung sowie der Rückfall bei wiederholten temporären Fehlern bleiben aktiv.
 
@@ -47,7 +50,7 @@ Die Auswahl ist nur **außerhalb eines laufenden Exports** veränderbar. Ein Wec
 - Tampermonkey-/Greasemonkey-Menüeintrag **und** sichtbarer Export-Button **unten rechts** mit **Dots** (drei versetzt animierte Punkte) während aller aktiven Exportphasen (API-Abruf, Retries, ZIP-Komprimierung), unabhängig vom geöffneten/geschlossenen Fortschrittsfenster
 - Automatische Ermittlung der aktuellen Chat-URL im **Moment des Klicks**
 - Authentifizierter Abruf über die bestehende ChatGPT-Sitzung
-- **Experimenteller Fast-Modus in der Tampermonkey-Version:** Cursor-Paginierung mit `num_turns=2` und **100 ms** Pause (Referenz bisher `num_turns=1`, 250 ms); bei zwei aufeinanderfolgenden temporären Backend-/Netzwerkfehlern einer Seite automatischer Rückfall auf `num_turns=1`. Kein Parallel-Request, weiterhin `include_has_versions=true` und `before=start_cursor`.
+- **Persistierbarer, benutzerdefinierter Performance-Modus:** standardmäßig Cursor-Paginierung mit `num_turns=3` und **100 ms** Pause (Referenz bisher `num_turns=1`, 250 ms); bei zwei aufeinanderfolgenden temporären Backend-/Netzwerkfehlern einer Seite automatischer Rückfall auf `num_turns=1`. Kein Parallel-Request, weiterhin `include_has_versions=true` und `before=start_cursor`.
 - Retry bei HTTP 429/500/502/503/504, Abbruch, Wiederaufnahme ohne erneutes Laden bereits validierter Seiten
 - Verhinderung von Cursor-Schleifen; Validierung aller Seiten, Deduplizierung und Audit im JSON
 - Englische Statusmeldungen mit **API pages** (= paginierte HTTP-Antworten, keine Browserseiten) und **message records** (= technische Nachrichtendatensätze)
