@@ -2,15 +2,15 @@
 
 Ein eigenständiges **Greasemonkey-/Tampermonkey-Userscript** zum lokalen JSON-Export **einer einzelnen, aktuell geöffneten Original-ChatGPT-Unterhaltung**. Kein Gesamtexport des Kontos und kein automatischer Export bei jedem Seitenaufruf.
 
-> **Status: Entwicklungsfassung 0.1.4 auf Feature-Branch.** Die zugrundeliegende Browser-Konsolen-Version wurde praktisch bestätigt. Die Tampermonkey-Version 0.1.1 wurde unter Firefox vom Anwender erfolgreich getestet. Die neuen 0.1.4-Änderungen (Position, englische Oberfläche und Profiling) benötigen noch einen abschließenden Browsertest.
+> **Status: Entwicklungsfassung 0.1.5 auf Feature-Branch.** Die zugrundeliegende Browser-Konsolen-Version wurde praktisch bestätigt. Die Tampermonkey-Version 0.1.1 wurde unter Firefox vom Anwender erfolgreich getestet. Die neue 0.1.5-Korrektur für das Schließen und Wiederöffnen des Statusfensters benötigt noch einen abschließenden Browsertest.
 
 ## Installation und Bedienung
 
 1. Für Firefox **Tampermonkey** (oder Greasemonkey 4.11+) installieren.
-2. Die Datei [`userscripts/chatgpt-conversation-export.user.js`](userscripts/chatgpt-conversation-export.user.js) aus diesem Branch installieren. [Direktlink zur Raw-Datei](https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/refs/heads/feat/greasemonkey-single-conversation-export/userscripts/chatgpt-conversation-export.user.js). **Version 0.1.4:** Eine bereits installierte Version 0.1.0/0.1.1 aktualisieren oder ersetzen, nicht zusätzlich als zweites aktives Script installieren.
+2. Die Datei [`userscripts/chatgpt-conversation-export.user.js`](userscripts/chatgpt-conversation-export.user.js) aus diesem Branch installieren. [Direktlink zur Raw-Datei](https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/refs/heads/feat/greasemonkey-single-conversation-export/userscripts/chatgpt-conversation-export.user.js). **Version 0.1.5:** Eine bereits installierte ältere Version aktualisieren oder ersetzen, nicht zusätzlich als zweites aktives Script installieren.
 3. Auf `https://chatgpt.com` anmelden und **einen Original-Chat** öffnen: `/c/<uuid>` oder `/g/.../c/<uuid>`. Nach Installation/Update den Chat-Tab **neu laden**, um das neue Script auszuführen.
 4. Unten rechts auf der ChatGPT-Seite **„Export chat as JSON“** klicken. Alternativ den Befehl **„Export current chat as JSON“** im Userscript-Manager-Menü wählen, falls dieser angeboten wird. Der kleine Pfeil neben dem installierten Script in Tampermonkey öffnet **nur dessen Verwaltungsmenü**, nicht den Export.
-5. Das Statusfenster oberhalb des Export-Buttons zeigt **„API pages“** und **„message records“** an. **Cancel** unterbricht den Abruf, **Export chat as JSON** setzt ihn im selben Tab fort. Nach mindestens einer Antwort steht **„Save performance report“** für einen separaten, optionalen Download bereit.
+5. Das Statusfenster oberhalb des Export-Buttons zeigt **„API pages“** und **„message records“** an. **Cancel** unterbricht den Abruf, **Export chat as JSON** setzt ihn im selben Tab fort. **Close schließt ausschließlich das Statusfenster – nicht den laufenden Export.** Es bleibt auch bei späteren Fortschrittsmeldungen geschlossen. Während eines laufenden Exports öffnet ein Klick auf **Export chat as JSON** das Statusfenster erneut, ohne einen zweiten Export zu starten; **Cancel** ist dabei weiterhin aktiv. Nach mindestens einer Antwort steht **„Save performance report“** für einen separaten, optionalen Download bereit.
 6. Nach bestätigtem Paginierungsende die Datei `chatgpt-conversation-<uuid>.json` im Browser-Downloadverzeichnis kontrollieren.
 
 Das Repository ist inzwischen **öffentlich**. Die automatische Aktualisierung über `@downloadURL`/`@updateURL` ist bis zur ersten stabilen Version noch nicht konfiguriert; aktualisiere die Entwicklungsfassung bei Bedarf über den Raw-Link.
@@ -27,7 +27,7 @@ Ausführliche Hinweise: [Installation / manueller Smoke-Test](docs/installation-
 - Verhinderung von Cursor-Schleifen; Validierung aller Seiten, Deduplizierung und Audit im JSON
 - Englische Statusmeldungen mit **API pages** (= paginierte HTTP-Antworten, keine Browserseiten) und **message records** (= technische Nachrichtendatensätze)
 - Optionaler **„Save performance report“**-Download ohne Chat-Inhalte/IDs: HTTP-Status, Retries, Datensätze und Zeiten pro API-Seite, JSON-Parsing und Serialisierung
-- **Cancel** ist nur während eines laufenden Exports aktiv; danach **disabled und sichtbar grau**. Die Änderung ist durch einen UI-Test abgesichert.
+- **Cancel** ist nur während eines laufenden Exports aktiv; danach **disabled und sichtbar grau**. Wird das Fenster während des Exports nach **Close** erneut geöffnet, ist Cancel wieder korrekt aktiviert. Zwei UI-Regressionstests schützen das Schließen und Wiederöffnen.
 - Keine Laufzeitbibliotheken, keine externen `@require`-Skripte
 
 ## Entwicklung
