@@ -2,7 +2,7 @@
 
 A standalone **Tampermonkey/Greasemonkey userscript** that exports **one currently open, original ChatGPT conversation** as JSON. It is not an account-wide export, and it never starts an export automatically on page load.
 
-> **Version 0.3.0-beta.2 (attachment experiment, feature branch only).** The exporter and its pagination flow have been used with Firefox and Tampermonkey. Automated tests cover the current implementation; verify new UI styling and browser-specific download behavior in your own browser. The internal ChatGPT API is undocumented and may change without notice.
+> **Version 0.3.0-beta.3 (attachment experiment, feature branch only).** The exporter and its pagination flow have been used with Firefox and Tampermonkey. Automated tests cover the current implementation; verify new UI styling and browser-specific download behavior in your own browser. The internal ChatGPT API is undocumented and may change without notice.
 
 ## Install and use
 
@@ -48,7 +48,7 @@ Changing a valid value updates the **next** export immediately, but is **session
 
 To measure a fresh HTTP export with the *same* settings, **reload the ChatGPT tab** first. Otherwise a completed in-memory session can generate another ZIP without fetching messages again.
 
-## Experimental optional attachment export (v0.3.0-beta.2)
+## Experimental optional attachment export (v0.3.0-beta.3)
 
 The attachment toggle is a **custom visibly drawn square checkbox** with a clear checkmark rather than a native `<input type="checkbox">`. This avoids ChatGPT's global form CSS hiding the control. It is still keyboard accessible (**Tab**, **Space/Enter**) and exposes `role="checkbox"` / `aria-checked` for assistive technologies.
 
@@ -64,6 +64,8 @@ attachments/002-generated-report.xlsx
 ```
 
 The entries under `attachments/` are only present for files that actually download. The manifest lists each discovered file, its originating message ID/role, attempted download result, archive path and size. It records a reason for missing or unsupported downloads. Signed download URLs and session tokens are **never** included in the manifest.
+
+**Upload resolver improvements in beta.3:** A reported `metadata HTTP 404` no longer means we immediately classify the file as unavailable. The downloader now prefers `/backend-api/files/{file_id}/download` for ordinary/file-service references and `/backend-api/conversation/{conversation_id}/attachment/{file_id}/download` for `sediment://` pointers. If one route reports **404 or 410**, it tries the other documented resolvers, including the previous `/backend-api/files/download/{file_id}` variant. It attaches the current browser-session Bearer token when available (and still uses same-origin cookies). **401/403 do not trigger fallback.** The manifest now includes `source`, `resolved_by` and safe `resolver_routes_tried` names, never signed URLs or tokens. These are still undocumented APIs requiring a real-browser verification.
 
 **Supported discovery (best effort):**
 
