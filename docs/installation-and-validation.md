@@ -5,38 +5,38 @@ This guide covers **version 0.2.3** of the ChatGPT Conversation Exporter for Tam
 ## Requirements
 
 - Firefox with **Tampermonkey** or **Greasemonkey 4.11+**.
-- A signed-in session at \`https://chatgpt.com\` and access to an **original** conversation.
+- A signed-in session at `https://chatgpt.com` and access to an **original** conversation.
 - Sufficient memory and disk space for potentially large raw JSON.
 - No third-party runtime dependencies.
 
-The userscript uses \`GM_registerMenuCommand\` / \`GM.registerMenuCommand\` for the optional menu action, and \`GM_getValue\` / \`GM_setValue\` or \`GM.getValue\` / \`GM.setValue\` for explicitly saved settings.
+The userscript uses `GM_registerMenuCommand` / `GM.registerMenuCommand` for the optional menu action, and `GM_getValue` / `GM_setValue` or `GM.getValue` / `GM.setValue` for explicitly saved settings.
 
 ## Install or update
 
-1. Open [the installable userscript on \`main\`](https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/main/userscripts/chatgpt-conversation-export.user.js) and install or update it with your userscript manager. If the raw page does not invoke installation, copy the source into the manager's userscript editor.
+1. Open [the installable userscript on `main`](https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/main/userscripts/chatgpt-conversation-export.user.js) and install or update it with your userscript manager. If the raw page does not invoke installation, copy the source into the manager's userscript editor.
 2. Ensure **only one active copy** of the exporter is installed. Do not leave older and newer versions enabled simultaneously.
-3. Open \`https://chatgpt.com/c/<conversation-id>\` or an original \`/g/.../c/<conversation-id>\` conversation and **reload the tab** after installing or updating.
+3. Open `https://chatgpt.com/c/<conversation-id>` or an original `/g/.../c/<conversation-id>` conversation and **reload the tab** after installing or updating.
 4. Find the compact **Export chat as JSON** launcher at the bottom right, next to a **transparent SVG gear**. If the optional menu command is unavailable, use the page launcher instead. A Tampermonkey dropdown beside a script name may show management actions only.
 
-This development release intentionally has no explicit \`@updateURL\` or \`@downloadURL\`; use the repository link above to update.
+This development release intentionally has no explicit `@updateURL` or `@downloadURL`; use the repository link above to update.
 
 ## Export a conversation
 
 1. Click **Export chat as JSON** while viewing the original conversation. No export starts on page load.
 2. The progress panel displays **API pages** (backend pagination responses) and **message records** (technical message objects); these are *not* synonymous with conversation turns or browser pages. Messages are collected sequentially and the progress text no longer says **"checking for older pages"**.
 3. **Cancel** interrupts the current run; restart the export from the same conversation and tab to resume previously validated pages. **Close** dismisses the panel but **does not cancel** the export. The **Dots** activity animation remains visible in the launcher even while the panel is closed. Clicking Export while a run is active reopens the panel rather than starting another export.
-4. On completion, the panel displays **Save performance report**, while **Cancel** is hidden. The browser downloads a ZIP containing \`chatgpt-conversation-<conversation-id>.json\`. If ZIP compression fails or is unsupported, the exporter downloads **plain JSON** and explicitly reports the fallback.
+4. On completion, the panel displays **Save performance report**, while **Cancel** is hidden. The browser downloads a ZIP containing `chatgpt-conversation-<conversation-id>.json`. If ZIP compression fails or is unsupported, the exporter downloads **plain JSON** and explicitly reports the fallback.
 5. The completion line displays **whole-second active duration**, **JSON uncompressed** (UTF-8 byte size in MiB), and downloaded **ZIP** or **JSON** size. For instance:
 
-   \`\`\`text
+   ```text
    Export complete – ZIP download started.
    26 API pages, 2795 unique message records;
    Duration: 2m 23s (active); JSON uncompressed: 32.85 MiB;
    ZIP 3.56 MiB – chatgpt-conversation-<id>.zip
-   \`\`\`
+   ```
 
-   Values above are illustrative. Active time sums multiple resumed runs but **excludes time paused between them**. The report's final \`active_run_ms\` can be slightly higher because it is finalized afterward.
-6. Open the downloaded JSON (inside ZIP if applicable). Confirm that \`messages\` is an array, \`page_metadata\` exists, \`local_export_audit.pagination_verified === true\`, and the unique record count seems plausible. Spot-check the earliest and latest messages if necessary.
+   Values above are illustrative. Active time sums multiple resumed runs but **excludes time paused between them**. The report's final `active_run_ms` can be slightly higher because it is finalized afterward.
+6. Open the downloaded JSON (inside ZIP if applicable). Confirm that `messages` is an array, `page_metadata` exists, `local_export_audit.pagination_verified === true`, and the unique record count seems plausible. Spot-check the earliest and latest messages if necessary.
 
 **Important:** Clicking Export again with unchanged settings in the *same completed tab* can produce a fresh ZIP **without a new API download**. To measure a new full export, **reload the tab** first.
 
@@ -51,7 +51,7 @@ The panel intentionally contains **only two numeric inputs**:
 | Turns | 3 | Integer 1–1000 | Logical conversation turns requested per API response |
 | Delay (ms) | 100 | Integer 0–60000 | Pause between consecutive API pages |
 
-- **Editing** valid values changes the **next export** immediately, but only for the current session. \`sessionStorage\` usually preserves them across F5 within that tab.
+- **Editing** valid values changes the **next export** immediately, but only for the current session. `sessionStorage` usually preserves them across F5 within that tab.
 - **Save** explicitly persists both values in Tampermonkey/Greasemonkey storage for future sessions.
 - **Load defaults** applies **3 / 100** to the current session only. To overwrite any previously saved permanent values with defaults, click **Save** afterward.
 - Pre-v0.2.0 preferences are read as a compatibility fallback. There is no automatic write to the new durable key.
@@ -66,11 +66,11 @@ A new browser tab normally loads the durable saved values rather than unsaved ch
 
 Use **Node.js 22+** and the local comparison script:
 
-\`\`\`powershell
+```powershell
 node .\scripts\compare-exports.js "C:\path\old.zip" "C:\path\new.zip"
-\`\`\`
+```
 
-The script supports \`.zip\` and \`.json\`, verifies ZIP CRC32, compares **all message IDs**, canonical message objects and message order, and ignores expected differences in pagination metadata and export timestamps. It outputs only counts and a verdict, not private IDs or message content. Exit codes: \`0\` identical, \`1\` different, \`2\` malformed input or execution error.
+The script supports `.zip` and `.json`, verifies ZIP CRC32, compares **all message IDs**, canonical message objects and message order, and ignores expected differences in pagination metadata and export timestamps. It outputs only counts and a verdict, not private IDs or message content. Exit codes: `0` identical, `1` different, `2` malformed input or execution error.
 
 For one real 5,329-message-record conversation the user independently confirmed that exports with **2 turns / 100 ms**, **2 turns / 250 ms**, and **3 turns / 100 ms** have identical IDs, messages and order. This does not eliminate the need to verify different conversations when changing API batching.
 
@@ -90,11 +90,11 @@ For one real 5,329-message-record conversation the user independently confirmed 
 - [ ] Dots animate while fetching, retrying and compressing, even with the progress panel closed. They stop on success, cancellation or error; reduced-motion settings make dots static.
 - [ ] Closing and reopening an active progress panel **does not start additional requests**.
 - [ ] Closing a completed panel and downloading the same in-memory chat again does not show a stale grey Cancel button.
-- [ ] Final status displays **whole seconds**, properly carries \`59.8s → 1m 0s\`, and shows both **uncompressed JSON** and actual downloaded file size in MiB.
+- [ ] Final status displays **whole seconds**, properly carries `59.8s → 1m 0s`, and shows both **uncompressed JSON** and actual downloaded file size in MiB.
 - [ ] ZIP opens and contains exactly one valid JSON file; CRC32 and export audit are correct.
 - [ ] When browser-native compression is unavailable, the fallback is visibly labeled **JSON**, never an invalid ZIP.
 - [ ] **Save performance report** creates a JSON with counts/times, no private chat IDs/contents/tokens, only after explicit user action.
-- [ ] A long chat reaches \`has_previous_page=false\` without cursor loops; a cancelled export resumes in the same tab.
+- [ ] A long chat reaches `has_previous_page=false` without cursor loops; a cancelled export resumes in the same tab.
 - [ ] Navigating to a different original conversation starts a separate session and filename.
 - [ ] Shared links or non-conversation URLs fail safely.
 - [ ] No conversation content or authentication credentials are sent to other origins or committed to Git.
@@ -111,8 +111,8 @@ For one real 5,329-message-record conversation the user independently confirmed 
 | Download does not appear | Check browser download permissions and save settings; test Firefox/Tampermonkey downloads |
 | Cancelled/interrupted export | Resume in the same tab and original conversation; a full reload clears cached pages |
 | Performance report lacks ZIP/serialization metrics | Those fields are available only after successful download preparation |
-| A \`.json\` rather than \`.zip\` downloads | Native \`CompressionStream('deflate-raw')\` is unavailable or failed; the plain JSON fallback is intentional |
-| API pages vary in message count | \`num_turns\` controls logical turns, not the number of technical message objects |
+| A `.json` rather than `.zip` downloads | Native `CompressionStream('deflate-raw')` is unavailable or failed; the plain JSON fallback is intentional |
+| API pages vary in message count | `num_turns` controls logical turns, not the number of technical message objects |
 
 ## Privacy reminder
 
