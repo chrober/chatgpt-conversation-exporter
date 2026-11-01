@@ -907,3 +907,34 @@ test("completed export re-run after Close leaves no greyed-out Cancel button", a
     assert.equal(ui.spinner.style.display, "none");
     assert.equal(ui.launcher.attributes["aria-busy"], "false");
 });
+
+
+test("performance diagnostics track batch sizes and pacing without retaining any URL or cursor", async () => {
+    const { createExportProfiler } = require("../src/profiling.js");
+    let tick = 0;
+    const profiler = createExportProfiler({ now: () => tick });
+    const instrument = profiler.instrumentFetch(async (_url, _options) => {
+        tick += 12;
+        return {
+            ok: true, status: 200,
+            json: async () => { tick += 3; return { messages: [] }; }
+        };
+    }, () => 1);
+    const secret = "/backend-api/conversations/" + ID +
+        "/messages?include_has_versions=true&num_turns=2&before=private-cursor";
+    const response = await instrument(secret, {
+        headers: { Authorization: "Bearer private-token" }
+    });
+    await response.json();
+    profiler.trackPage({ pages: 1, records: 17, requestDelayMs: 100 });
+    const report = profiler.report();
+    assert.equal(report.summary.request_delay_ms, 100);
+    assert.equal(report.summary.requests_by_num_turns["2"], 1);
+    assert.equal(report.requests[0].num_turns, 2);
+    assert.equal(report.pages[0].num_turns, 2);
+    assert.equal(report.pages[0].request_delay_ms, 100);
+    const json = JSON.stringify(report);
+    for (const sensitive of [ID, "private-cursor", "private-token"]) {
+        assert.equal(json.includes(sensitive), false);
+    }
+});
