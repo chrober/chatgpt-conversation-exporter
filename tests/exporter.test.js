@@ -386,6 +386,7 @@ test("Cancel is enabled during a fetch and visibly greyed out after success", as
         },
         URL,
         URLSearchParams,
+        TextEncoder,
         Blob,
         AbortController,
         performance,
@@ -484,6 +485,7 @@ function makeExportUiHarness() {
         document,
         URL: urls,
         URLSearchParams,
+        TextEncoder,
         window: { location: { origin: "https://chatgpt.com", pathname: "/c/" + ID } },
         Blob,
         AbortController,
@@ -560,4 +562,90 @@ test("reopening a dismissed running export restores progress and enabled Cancel"
     await ui.settle();
     assert.equal(cancel.disabled, true);
     assert.equal(cancel.style.opacity, "0.55");
+});
+
+
+test("native ZIP contains byte-exact JSON and a verifiable CRC-32", async () => {
+    const { crc32, compressJsonAsZipOrPlain } = require("../src/compression.js");
+    const { inflateRawSync } = require("node:zlib");
+    const json = JSON.stringify({ text: "Grüße 🎵", messages: ["hello".repeat(400)] });
+    const filename = "chatgpt-conversation-" + ID + ".json";
+    const result = await compressJsonAsZipOrPlain(json, filename, {
+        CompressionStream,
+        Response
+    });
+    assert.equal(result.format, "zip");
+    assert.equal(result.fileName, filename.replace(/\.json$/, ".zip"));
+    assert.equal(result.warning, null);
+    assert.ok(result.archiveBytes < result.jsonBytes);
+
+    const zip = Buffer.from(await result.blob.arrayBuffer());
+    assert.equal(zip.readUInt32LE(0), 0x04034b50);
+    assert.equal(zip.readUInt16LE(8), 8); // DEFLATE
+    assert.equal(zip.readUInt16LE(6), 0x0800); // UTF-8 entry name
+    const checksum = zip.readUInt32LE(14);
+    const compressedSize = zip.readUInt32LE(18);
+    const originalSize = zip.readUInt32LE(22);
+    const fileNameLength = zip.readUInt16LE(26);
+    assert.equal(zip.subarray(30, 30 + fileNameLength).toString(), filename);
+
+    const deflate = zip.subarray(30 + fileNameLength,
+        30 + fileNameLength + compressedSize);
+    const unpacked = inflateRawSync(deflate);
+    assert.equal(unpacked.length, originalSize);
+    assert.equal(unpacked.toString("utf8"), json);
+    assert.equal(checksum, crc32(unpacked));
+
+    const central = 30 + fileNameLength + compressedSize;
+    assert.equal(zip.readUInt32LE(central), 0x02014b50);
+    assert.equal(zip.readUInt32LE(central + 16), checksum);
+    assert.equal(zip.readUInt32LE(central + 42), 0);
+    const eocd = central + 46 + fileNameLength;
+    assert.equal(zip.readUInt32LE(eocd), 0x06054b50);
+    assert.equal(zip.readUInt32LE(eocd + 12), 46 + fileNameLength);
+    assert.equal(zip.readUInt32LE(eocd + 16), central);
+});
+
+test("missing CompressionStream saves honest plain JSON fallback", async () => {
+    const { compressJsonAsZipOrPlain } = require("../src/compression.js");
+    const source = '{"test":true}';
+    const result = await compressJsonAsZipOrPlain(source, "test.json", {
+        CompressionStream: null
+    });
+    assert.equal(result.fileName, "test.json");
+    assert.equal(result.format, "json");
+    assert.match(result.warning, /ZIP unavailable/);
+    assert.equal(await result.blob.text(), source);
+});
+
+test("performance report action is hidden until the export settles successfully", async () => {
+    const ui = makeExportUiHarness();
+    ui.launcher.listeners.click();
+    await ui.settle();
+    const performance = ui.findButton("Save performance report");
+    assert.ok(performance);
+    assert.equal(performance.hidden, true);
+    assert.equal(performance.style.display, "none");
+
+    ui.pending[0](ok(page([msg("single")], "cursor-end", false)));
+    await ui.settle();
+    await ui.settle();
+    assert.equal(performance.hidden, false);
+    assert.equal(performance.style.display, "");
+    assert.equal(performance.disabled, false);
+    const cancel = ui.findButton("Cancel");
+    assert.equal(cancel.disabled, true);
+});
+
+test("performance report action appears after export error without completed pages", async () => {
+    const ui = makeExportUiHarness();
+    ui.launcher.listeners.click();
+    await ui.settle();
+    const performance = ui.findButton("Save performance report");
+    assert.equal(performance.hidden, true);
+    ui.pending[0]({ ok: false, status: 403 });
+    await ui.settle();
+    await ui.settle();
+    assert.equal(performance.hidden, false);
+    assert.equal(performance.disabled, false);
 });
