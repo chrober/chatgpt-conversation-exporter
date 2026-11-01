@@ -470,8 +470,13 @@
     }
 
     async function startExport() {
+        // Reopening an active export must stay synchronous for the click handler.
+        if (state.controller) {
+            showPanel();
+            return;
+        }
         // Greasemonkey 4+ restores settings asynchronously. Do not start a
-        // request using defaults until the saved preferences are loaded.
+        // new request using defaults until saved preferences are loaded.
         await settingsReady;
         if (state.controller) {
             // Reopen the existing progress view; do not start another fetch
