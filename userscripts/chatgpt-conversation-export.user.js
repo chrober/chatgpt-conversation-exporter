@@ -1,10 +1,11 @@
 // ==UserScript==
 // @name         ChatGPT Conversation Exporter
 // @namespace    https://github.com/chrober/chatgpt-conversation-exporter
-// @version      0.1.0
+// @version      0.1.1
 // @description  Exportiert den aktuell geöffneten Original-Chat als JSON.
 // @match        https://chatgpt.com/*
 // @run-at       document-idle
+// @grant        GM_registerMenuCommand
 // @grant        GM.registerMenuCommand
 // ==/UserScript==
 
@@ -278,7 +279,7 @@ if (typeof module !== "undefined" && module.exports) {
 
 "use strict";
 
-// Greasemonkey UI adapter. The exporter core is embedded by build-userscript.js.
+// Greasemonkey/Tampermonkey UI adapter. Core embedded by build-userscript.js.
 // Do not run an export automatically when ChatGPT loads.
 (function installExportCommand() {
     const state = {
@@ -470,17 +471,67 @@ if (typeof module !== "undefined" && module.exports) {
         }
     }
 
-    if (typeof GM !== "undefined" &&
-        typeof GM.registerMenuCommand === "function") {
-        GM.registerMenuCommand(
-            "Aktuellen Chat als JSON exportieren",
-            () => { void startExport(); }
-        );
-    } else {
+    // Tampermonkey: GM_registerMenuCommand; Greasemonkey 4+: GM.registerMenuCommand.
+    // Some managers only expose one of these APIs.
+    const menuLabel = "Aktuellen Chat als JSON exportieren";
+    try {
+        if (typeof GM_registerMenuCommand === "function") {
+            GM_registerMenuCommand(menuLabel, () => { void startExport(); });
+        } else if (typeof GM !== "undefined" &&
+                   typeof GM.registerMenuCommand === "function") {
+            GM.registerMenuCommand(menuLabel, () => { void startExport(); });
+        } else {
+            console.info(
+                "[ChatGPT Conversation Exporter] Kein Userscript-Menü verfügbar; " +
+                "der Export-Button auf der Seite bleibt verwendbar."
+            );
+        }
+    } catch (error) {
         console.warn(
-            "[ChatGPT Conversation Exporter] " +
-            "GM.registerMenuCommand ist nicht verfügbar."
+            "[ChatGPT Conversation Exporter] Menüregistrierung fehlgeschlagen; " +
+            "Export-Button bleibt verwendbar.", error
         );
+    }
+
+    // Visible, intentionally small fallback for Firefox/Tampermonkey.
+    // It only starts exporting after a real user click; never on page load.
+    function addLauncher() {
+        if (!document.body ||
+            document.getElementById("chatgpt-conversation-export-launcher")) {
+            return;
+        }
+        const button = document.createElement("button");
+        button.id = "chatgpt-conversation-export-launcher";
+        button.type = "button";
+        button.textContent = "Chat als JSON exportieren";
+        button.title = "Aktuell geöffneten Original-Chat als JSON exportieren";
+        button.setAttribute("aria-label", button.title);
+        Object.assign(button.style, {
+            position: "fixed",
+            bottom: "18px",
+            left: "18px",
+            zIndex: "2147483646",
+            padding: "8px 12px",
+            border: "1px solid #8c99a8",
+            borderRadius: "8px",
+            color: "#fff",
+            background: "#253144",
+            boxShadow: "0 3px 12px rgba(0,0,0,.25)",
+            cursor: "pointer",
+            font: "12px/1.3 system-ui, sans-serif"
+        });
+        button.addEventListener("click", () => { void startExport(); });
+        document.body.appendChild(button);
+    }
+
+    if (typeof document !== "undefined") {
+        if (document.body) {
+            addLauncher();
+        } else {
+            document.addEventListener("DOMContentLoaded", addLauncher, {
+                once: true
+            });
+        }
     }
 })();
 
