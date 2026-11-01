@@ -118,20 +118,26 @@
             root.remove();
             state.panel = null;
         });
-        setCancelEnabled(cancel, Boolean(state.controller &&
-            !state.controller.signal.aborted));
-        updatePerformanceAction({ saveProfile });
+        updatePanelActions({ cancel, saveProfile });
         root.appendChild(actions);
         document.body.appendChild(root);
         state.panel = { root, status, progress, cancel, saveProfile };
         return state.panel;
     }
 
-    function updatePerformanceAction(panel) {
-        const available = state.exportSettled && Boolean(state.profiler);
-        panel.saveProfile.hidden = !available;
-        panel.saveProfile.style.display = available ? "" : "none";
-        panel.saveProfile.disabled = !available;
+    function updatePanelActions(panel) {
+        const running = Boolean(state.controller);
+        const canCancel = running && !state.controller.signal.aborted;
+        // Exactly one contextual action: Cancel during a run, Save report
+        // after success, failure or cancellation. Close stays visible.
+        setCancelEnabled(panel.cancel, canCancel);
+        panel.cancel.hidden = !running;
+        panel.cancel.style.display = running ? "" : "none";
+
+        const canSave = state.exportSettled && Boolean(state.profiler);
+        panel.saveProfile.hidden = !canSave;
+        panel.saveProfile.style.display = canSave ? "" : "none";
+        panel.saveProfile.disabled = !canSave;
     }
 
     function report(message, detail = "") {
@@ -144,7 +150,7 @@
         if (panel) {
             panel.status.textContent = message;
             panel.progress.textContent = detail;
-            updatePerformanceAction(panel);
+            updatePanelActions(panel);
         }
         console.info("[ChatGPT Conversation Exporter]", message, detail);
     }
@@ -233,11 +239,11 @@
 
         const session = state.session;
         state.exportSettled = false;
-        if (state.panel?.root?.isConnected) updatePerformanceAction(state.panel);
+        if (state.panel?.root?.isConnected) updatePanelActions(state.panel);
         state.controller = new AbortController();
         updateLauncherActivity();
         const signal = state.controller.signal;
-        setCancelEnabled(showPanel().cancel, true);
+        updatePanelActions(showPanel());
         const runStarted = state.profiler.runStarted();
 
         try {
@@ -295,8 +301,7 @@
             updateLauncherActivity();
             state.exportSettled = true;
             if (state.panel?.root?.isConnected) {
-                setCancelEnabled(state.panel.cancel, false);
-                updatePerformanceAction(state.panel);
+                updatePanelActions(state.panel);
             }
         }
     }
