@@ -331,5 +331,5 @@ test("generated UI uses bottom-right launcher and a separate performance report 
     assert.match(entry, /Save performance report/);
     assert.match(entry, /API pages/);
     assert.match(entry, /state\.profiler\.noteDownload\(result\)/);
-    assert.match(entry, /profile\.report\(\)/);
+    assert.match(entry, /state\.profiler\.report\(\)/);
 });
