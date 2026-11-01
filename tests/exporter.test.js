@@ -1359,3 +1359,50 @@ test("attachment controls are disabled while export is active", async () => {
     await ui.settle();
     assert.equal(check.disabled, false);
 });
+
+
+test("attachment-enabled UI exports ZIP with a manifest and counts retrieved files", async () => {
+    const ui = makeExportUiHarness(new Map());
+    await ui.settle();
+    ui.modeButton().listeners.click();
+    const checkbox = ui.attachmentInput();
+    checkbox.checked = true;
+    checkbox.listeners.change();
+    ui.launcher.listeners.click();
+    await ui.settle();
+    const withAttachment = {
+        ...msg("user-with-file", "user"),
+        metadata: { attachments: [{
+            file_id: "file_0000000012345678abcdef1234567890",
+            name: "notes.txt"
+        }] }
+    };
+    ui.pending[0](ok(page([withAttachment], "end", false)));
+    await ui.settle();
+    await ui.settle();
+    assert.equal(ui.messageRequests, 2, "file metadata request should follow conversation");
+    assert.match(ui.messageUrls[1], /\/backend-api\/files\/download\//);
+    ui.pending[1]({
+        ok: true, status: 200,
+        json: async () => ({
+            download_url: "/backend-api/estuary/content?sig=TEST_SIGNATURE",
+            file_name: "notes.txt"
+        })
+    });
+    await ui.settle();
+    await ui.settle();
+    assert.equal(ui.messageRequests, 3);
+    ui.pending[2]({
+        ok: true, status: 200,
+        headers: { get: () => null },
+        arrayBuffer: async () => new TextEncoder().encode("hello").buffer
+    });
+    await ui.settle();
+    await ui.settle();
+    await ui.settle();
+    const panel = ui.visiblePanel();
+    assert.equal(panel.children[1].textContent,
+        "Export complete – ZIP download started.");
+    assert.match(panel.children[2].textContent, /Attachments: 1\/1 downloaded/);
+    assert.doesNotMatch(panel.children[2].textContent, /TEST_SIGNATURE/);
+});
