@@ -1,13 +1,17 @@
 // ==UserScript==
 // @name         ChatGPT Conversation Exporter
 // @namespace    https://github.com/chrober/chatgpt-conversation-exporter
-// @version      0.1.11
+// @version      0.1.12
 // @author       Christoph O'Bermair
 // @description  Export the current ChatGPT conversation as JSON.
 // @match        https://chatgpt.com/*
 // @run-at       document-idle
 // @grant        GM_registerMenuCommand
 // @grant        GM.registerMenuCommand
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @grant        GM.getValue
+// @grant        GM.setValue
 // ==/UserScript==
 
 (function () {
@@ -447,7 +451,7 @@ function createExportProfiler(options = {}) {
         const recordCount = pages.at(-1)?.cumulative_records ?? 0;
         return {
             profile_format: "chatgpt-export-performance-v1",
-            userscript_version: "0.1.11",
+            userscript_version: "0.1.12",
             created_at: startedAt,
             reported_at: new Date().toISOString(),
             completed,
@@ -660,18 +664,49 @@ if (typeof module !== "undefined" && module.exports) {
 // Greasemonkey/Tampermonkey UI adapter. Core embedded by build-userscript.js.
 // Do not run an export automatically when ChatGPT loads.
 (function installExportCommand() {
+    const STORAGE_KEY = "chatgpt-conversation-exporter.settings.v1";
+    const DEFAULT_SETTINGS = Object.freeze({
+        mode: "experimental", customNumTurns: 3, customDelayMs: 100
+    });
     const BENCHMARK_MODES = Object.freeze({
         stable: { label: "Reference — 1 turn / 250 ms", numTurns: 1, delay: 250 },
         pace: { label: "Pacing test — 2 turns / 250 ms", numTurns: 2, delay: 250 },
-        fast: { label: "Fast (default) — 2 turns / 100 ms", numTurns: 2, delay: 100 },
-        experimental: { label: "Experimental — 3 turns / 100 ms", numTurns: 3, delay: 100 }
+        fast: { label: "Previous Fast — 2 turns / 100 ms", numTurns: 2, delay: 100 },
+        experimental: { label: "Recommended — 3 turns / 100 ms", numTurns: 3, delay: 100 },
+        custom: { label: "Custom settings", numTurns: null, delay: null }
     });
+
+    function validInt(value, min, max) {
+        return Number.isInteger(value) && value >= min && value <= max;
+    }
+
+    function readStoredSettings(value) {
+        if (!value || typeof value !== "object" ||
+            !Object.hasOwn(BENCHMARK_MODES, value.mode) ||
+            !validInt(value.customNumTurns, 1, 3) ||
+            !validInt(value.customDelayMs, 0, 2000)) {
+            return { ...DEFAULT_SETTINGS };
+        }
+        return {
+            mode: value.mode,
+            customNumTurns: value.customNumTurns,
+            customDelayMs: value.customDelayMs
+        };
+    }
     const state = {
         session: null,
         sessionMode: null,
-        mode: "fast",
+        mode: DEFAULT_SETTINGS.mode,
+        customNumTurns: DEFAULT_SETTINGS.customNumTurns,
+        customDelayMs: DEFAULT_SETTINGS.customDelayMs,
+        settingsLoaded: false,
+        settingsError: "",
         modePanel: null,
         modeSelect: null,
+        modeTurnInput: null,
+        modeDelayInput: null,
+        modeCustomFields: null,
+        modeNote: null,
         controller: null,
         panel: null,
         profiler: null,
@@ -686,11 +721,99 @@ if (typeof module !== "undefined" && module.exports) {
         return window.location.origin + window.location.pathname;
     }
 
+    function selectedConfiguration() {
+        if (state.mode === "custom") {
+            return { numTurns: state.customNumTurns, delay: state.customDelayMs };
+        }
+        return BENCHMARK_MODES[state.mode];
+    }
+
+    function selectedConfigurationKey() {
+        const config = selectedConfiguration();
+        return state.mode + ":" + config.numTurns + ":" + config.delay;
+    }
+
+    function updateSettingsInputs() {
+        const select = state.modeSelect;
+        if (!select) return;
+        select.value = state.mode;
+        select.disabled = !state.settingsLoaded || Boolean(state.controller);
+        const custom = state.mode === "custom";
+        if (state.modeTurnInput && state.modeDelayInput) {
+            const disabled = select.disabled;
+            state.modeTurnInput.disabled = disabled || !custom;
+            state.modeDelayInput.disabled = disabled || !custom;
+            if (state.modeCustomFields) {
+                state.modeCustomFields.style.display = custom ? "flex" : "none";
+            }
+            state.modeTurnInput.value = String(state.customNumTurns);
+            state.modeDelayInput.value = String(state.customDelayMs);
+        }
+        if (state.modeNote) {
+            state.modeNote.textContent = state.settingsError ||
+                (state.settingsLoaded
+                    ? "Settings are stored by your userscript manager. " +
+                      "Changing a mode starts a fresh API export on the next run."
+                    : "Loading saved settings ...");
+        }
+    }
+
+    async function persistSettings() {
+        const prefs = {
+            mode: state.mode,
+            customNumTurns: state.customNumTurns,
+            customDelayMs: state.customDelayMs
+        };
+        try {
+            if (typeof GM_setValue === "function") {
+                await GM_setValue(STORAGE_KEY, prefs);
+            } else if (typeof GM !== "undefined" &&
+                       typeof GM.setValue === "function") {
+                await GM.setValue(STORAGE_KEY, prefs);
+            } else {
+                throw new Error("Userscript persistent storage API unavailable.");
+            }
+            state.settingsError = "";
+        } catch (error) {
+            state.settingsError = "Could not save settings; they may reset on reload.";
+            console.warn("[ChatGPT Conversation Exporter]", state.settingsError, error);
+        }
+        updateSettingsInputs();
+    }
+
+    const settingsReady = (async () => {
+        try {
+            let stored = null;
+            if (typeof GM_getValue === "function") {
+                stored = await GM_getValue(STORAGE_KEY, null);
+            } else if (typeof GM !== "undefined" &&
+                       typeof GM.getValue === "function") {
+                stored = await GM.getValue(STORAGE_KEY, null);
+            }
+            if (stored !== null && stored !== undefined) {
+                const prefs = readStoredSettings(stored);
+                state.mode = prefs.mode;
+                state.customNumTurns = prefs.customNumTurns;
+                state.customDelayMs = prefs.customDelayMs;
+            }
+        } catch (error) {
+            state.settingsError = "Could not load saved settings; using defaults.";
+            console.warn("[ChatGPT Conversation Exporter]", state.settingsError, error);
+        } finally {
+            state.settingsLoaded = true;
+            updateSettingsInputs();
+        }
+    })();
+
     function toggleModePanel() {
         if (state.modePanel?.isConnected) {
             state.modePanel.remove();
             state.modePanel = null;
             state.modeSelect = null;
+            state.modeTurnInput = null;
+            state.modeDelayInput = null;
+            state.modeCustomFields = null;
+            state.modeNote = null;
             return;
         }
         const root = document.createElement("aside");
@@ -726,19 +849,77 @@ if (typeof module !== "undefined" && module.exports) {
             select.appendChild(option);
         }
         select.value = state.mode;
-        select.disabled = Boolean(state.controller);
         select.addEventListener("change", () => {
-            if (state.controller || !BENCHMARK_MODES[select.value]) {
-                select.value = state.mode;
+            if (state.controller || !state.settingsLoaded ||
+                !Object.hasOwn(BENCHMARK_MODES, select.value)) {
+                updateSettingsInputs();
                 return;
             }
             state.mode = select.value;
+            updateSettingsInputs();
+            void persistSettings();
         });
         root.appendChild(select);
+
+        const customFields = document.createElement("div");
+        customFields.id = "chatgpt-conversation-export-custom-fields";
+        Object.assign(customFields.style, {
+            display: "none", gap: "8px", marginTop: "10px"
+        });
+        function addSetting(labelText, id, value, min, max, onChange) {
+            const field = document.createElement("label");
+            field.textContent = labelText;
+            Object.assign(field.style, { display: "block", flex: "1" });
+            const input = document.createElement("input");
+            input.id = id;
+            input.type = "number";
+            input.min = String(min);
+            input.max = String(max);
+            input.step = "1";
+            input.value = String(value);
+            input.setAttribute("aria-label", labelText);
+            Object.assign(input.style, {
+                boxSizing: "border-box", width: "100%", marginTop: "4px",
+                padding: "6px", font: "inherit", color: "#fff",
+                background: "#354152", border: "1px solid #8c99a8",
+                borderRadius: "5px"
+            });
+            input.addEventListener("change", onChange);
+            field.appendChild(input);
+            customFields.appendChild(field);
+            return input;
+        }
+        function commitCustom() {
+            if (state.controller || !state.settingsLoaded || state.mode !== "custom") {
+                updateSettingsInputs();
+                return;
+            }
+            // Reject fractional, out-of-range, negative and empty inputs.
+            const turns = Number(state.modeTurnInput.value);
+            const delay = Number(state.modeDelayInput.value);
+            if (!state.modeTurnInput.value.trim() ||
+                !state.modeDelayInput.value.trim() ||
+                !validInt(turns, 1, 3) || !validInt(delay, 0, 2000)) {
+                state.settingsError =
+                    "Invalid settings: turns 1–3; delay 0–2000 ms (whole numbers).";
+                updateSettingsInputs();
+                return;
+            }
+            state.customNumTurns = turns;
+            state.customDelayMs = delay;
+            state.settingsError = "";
+            updateSettingsInputs();
+            void persistSettings();
+        }
+        const turns = addSetting("Turns (1–3)",
+            "chatgpt-conversation-export-custom-turns",
+            state.customNumTurns, 1, 3, commitCustom);
+        const delay = addSetting("Delay (0–2000 ms)",
+            "chatgpt-conversation-export-custom-delay",
+            state.customDelayMs, 0, 2000, commitCustom);
+        root.appendChild(customFields);
+
         const note = document.createElement("div");
-        note.textContent =
-            "Changing mode starts a fresh API export. The current tab keeps " +
-            "cached pages only while its mode is unchanged.";
         Object.assign(note.style, {
             color: "#c4cedb", marginTop: "8px", maxWidth: "285px"
         });
@@ -746,12 +927,21 @@ if (typeof module !== "undefined" && module.exports) {
         document.body.appendChild(root);
         state.modePanel = root;
         state.modeSelect = select;
+        state.modeTurnInput = turns;
+        state.modeDelayInput = delay;
+        state.modeCustomFields = customFields;
+        state.modeNote = note;
+        updateSettingsInputs();
     }
 
     function hideModePanel() {
         if (state.modePanel?.isConnected) state.modePanel.remove();
         state.modePanel = null;
         state.modeSelect = null;
+        state.modeTurnInput = null;
+        state.modeDelayInput = null;
+        state.modeCustomFields = null;
+        state.modeNote = null;
     }
 
     function updateLauncherActivity() {
@@ -941,6 +1131,9 @@ if (typeof module !== "undefined" && module.exports) {
     }
 
     async function startExport() {
+        // Greasemonkey 4+ restores settings asynchronously. Do not start a
+        // request using defaults until the saved preferences are loaded.
+        await settingsReady;
         if (state.controller) {
             // Reopen the existing progress view; do not start another fetch
             // or overwrite the latest progress status.
@@ -963,11 +1156,11 @@ if (typeof module !== "undefined" && module.exports) {
         // SPA navigation: a new chat gets a distinct in-memory session.
         if (!state.session ||
             state.session.conversationId !== current.conversationId ||
-            state.sessionMode !== state.mode) {
+            state.sessionMode !== selectedConfigurationKey()) {
             const profiler = createExportProfiler();
             state.profiler = profiler;
-            const mode = BENCHMARK_MODES[state.mode];
-            state.sessionMode = state.mode;
+            const mode = selectedConfiguration();
+            state.sessionMode = selectedConfigurationKey();
             state.session = createExportSession({
                 sourceUrl: current.sourceUrl,
                 numTurns: mode.numTurns,
