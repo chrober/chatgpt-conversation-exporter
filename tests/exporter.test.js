@@ -1035,6 +1035,7 @@ test("benchmark settings are read-only during a running export", async () => {
     ui.pending[0](ok(page([msg("last")], "done", false)));
     await ui.settle();
     await ui.settle();
+    assert.equal(select.disabled, false, "mode controls unlock on completion");
 });
 
 
@@ -1166,4 +1167,23 @@ test("invalid custom values and invalid stored settings are rejected safely", as
         assert.equal(ui.customTurns().value, "3");
         assert.equal(ui.customDelay().value, "100");
     }
+});
+
+
+test("rapid Greasemonkey async preference updates persist the newest mode", async () => {
+    const storage = new Map();
+    const ui = makeExportUiHarness(storage, true);
+    await ui.settle();
+    ui.findButton("Mode").listeners.click();
+    const select = ui.modeSelect();
+    select.value = "stable";
+    select.listeners.change();
+    select.value = "fast";
+    select.listeners.change();
+    select.value = "experimental";
+    select.listeners.change();
+    await ui.settle();
+    await ui.settle();
+    assert.equal(storage.get("chatgpt-conversation-exporter.settings.v1").mode,
+        "experimental", "saved settings must reflect last change");
 });
