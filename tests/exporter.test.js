@@ -333,3 +333,88 @@ test("generated UI uses bottom-right launcher and a separate performance report 
     assert.match(entry, /state\.profiler\.noteDownload\(result\)/);
     assert.match(entry, /state\.profiler\.report\(\)/);
 });
+
+
+test("Cancel is enabled during a fetch and visibly greyed out after success", async () => {
+    const code = fs.readFileSync(path.join(
+        __dirname, "../userscripts/chatgpt-conversation-export.user.js"
+    ), "utf8");
+
+    const elements = [];
+    function node(tagName) {
+        const element = {
+            tagName,
+            style: {},
+            children: [],
+            listeners: {},
+            attributes: {},
+            isConnected: false,
+            disabled: false,
+            setAttribute(key, value) { this.attributes[key] = value; },
+            addEventListener(type, cb) { this.listeners[type] = cb; },
+            appendChild(child) {
+                this.children.push(child);
+                child.isConnected = this.isConnected;
+            },
+            remove() { this.isConnected = false; },
+            click() {}
+        };
+        elements.push(element);
+        return element;
+    }
+    const body = node("body");
+    body.isConnected = true;
+    const document = {
+        body,
+        createElement: node,
+        getElementById: id => elements.find(e => e.id === id && e.isConnected) ?? null
+    };
+    let resolvePage;
+    const fetchImpl = async url => {
+        if (url === "/api/auth/session") {
+            return { ok: true, status: 200, json: async () => ({}) };
+        }
+        return new Promise(resolve => { resolvePage = resolve; });
+    };
+    const context = {
+        document,
+        window: {
+            location: {
+                origin: "https://chatgpt.com",
+                pathname: "/c/" + ID
+            }
+        },
+        URL,
+        Blob,
+        AbortController,
+        performance,
+        setTimeout: () => 0,
+        console: { info() {}, warn() {} },
+        GM_registerMenuCommand() {},
+        fetch: fetchImpl
+    };
+    vm.runInNewContext(code, context);
+
+    const launch = document.getElementById("chatgpt-conversation-export-launcher");
+    assert.ok(launch);
+    launch.listeners.click();
+    await new Promise(resolve => setImmediate(resolve));
+
+    const cancel = elements.find(e => e.textContent === "Cancel");
+    assert.ok(cancel);
+    assert.equal(cancel.disabled, false);
+    assert.equal(cancel.style.opacity, "1");
+    assert.equal(cancel.attributes["aria-disabled"], "false");
+    assert.equal(typeof resolvePage, "function");
+
+    resolvePage(ok(page([msg("one")], "cursor-end", false)));
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(cancel.disabled, true);
+    assert.equal(cancel.style.opacity, "0.55");
+    assert.equal(cancel.style.cursor, "not-allowed");
+    assert.equal(cancel.attributes["aria-disabled"], "true");
+    assert.ok(elements.some(e =>
+        e.textContent === "Export complete – JSON download started."
+    ));
+});
