@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Conversation Exporter
 // @namespace    https://github.com/chrober/chatgpt-conversation-exporter
-// @version      0.1.5
+// @version      0.1.6
 // @author       Christoph O'Bermair
 // @description  Export the current ChatGPT conversation as JSON.
 // @match        https://chatgpt.com/*
@@ -296,6 +296,9 @@ function createExportProfiler(options = {}) {
     let activeRunMs = 0;
     let serializationMs = null;
     let jsonBytes = null;
+    let archiveBytes = null;
+    let compressionMs = null;
+    let downloadFormat = null;
     let completed = false;
 
     const ms = value => Math.max(0, Math.round(value * 10) / 10);
@@ -383,6 +386,10 @@ function createExportProfiler(options = {}) {
     function noteDownload(metrics) {
         serializationMs = ms(metrics.serialization_ms);
         jsonBytes = metrics.json_bytes;
+        archiveBytes = metrics.archive_bytes ?? metrics.json_bytes;
+        compressionMs = metrics.compression_ms === undefined ?
+            null : ms(metrics.compression_ms);
+        downloadFormat = metrics.format ?? "json";
         completed = true;
     }
     function hasSamples() { return requests.length > 0 || pages.length > 0; }
@@ -407,7 +414,7 @@ function createExportProfiler(options = {}) {
         const recordCount = pages.at(-1)?.cumulative_records ?? 0;
         return {
             profile_format: "chatgpt-export-performance-v1",
-            userscript_version: "0.1.5",
+            userscript_version: "0.1.6",
             created_at: startedAt,
             reported_at: new Date().toISOString(),
             completed,
@@ -418,7 +425,8 @@ function createExportProfiler(options = {}) {
                 "parse_ms includes response body reading and JSON parsing.",
                 "HTTP Content-Length may refer to compressed transfer data and may be absent.",
                 "active_run_ms includes network, throttling, retries and processing, but excludes pauses between resumed runs.",
-                "Only completed API pages appear under pages. Failed attempts remain under requests."
+                "Only completed API pages appear under pages. Failed attempts remain under requests.",
+                "ZIP compression uses browser-native DEFLATE; archive_bytes measures the local ZIP output, not the original JSON size."
             ],
             summary: {
                 api_pages_completed: pages.length,
@@ -430,7 +438,12 @@ function createExportProfiler(options = {}) {
                 response_json_parse_ms: sumParse,
                 active_run_ms: ms(activeRunMs),
                 json_serialization_ms: serializationMs,
+                zip_compression_ms: compressionMs,
+                download_format: downloadFormat,
                 exported_json_bytes: jsonBytes,
+                archive_bytes: archiveBytes,
+                compression_ratio: jsonBytes && archiveBytes !== null ?
+                    ms(archiveBytes / jsonBytes) : null,
                 fetch_p50_ms: percentile(0.50),
                 fetch_p95_ms: percentile(0.95),
                 records_per_active_second: activeRunMs > 0 ?
@@ -453,6 +466,155 @@ if (typeof module !== "undefined" && module.exports) {
 
 "use strict";
 
+/**
+ * Create a standard, single-file ZIP archive (DEFLATE method 8) using the
+ * browser-native Compression Streams API. No third-party code or downloads.
+ * For browsers without deflate-raw support, callers retain the original JSON.
+ * The ZIP 32-bit size limits are enforced; no silent ZIP64 truncation.
+ */
+function crc32(bytes) {
+    let crc = 0xffffffff;
+    for (let i = 0; i < bytes.length; i++) {
+        crc ^= bytes[i];
+        for (let bit = 0; bit < 8; bit++) {
+            crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
+        }
+    }
+    return (crc ^ 0xffffffff) >>> 0;
+}
+
+function encodeZipSingleFile(name, inputBytes, deflateBytes) {
+    const nameBytes = new TextEncoder().encode(name);
+    const MAX_U32 = 0xffffffff;
+    if (!nameBytes.length || nameBytes.length > 0xffff) {
+        throw new RangeError("ZIP entry name must fit in 65,535 UTF-8 bytes.");
+    }
+    if (inputBytes.byteLength > MAX_U32 || deflateBytes.byteLength > MAX_U32) {
+        throw new RangeError("ZIP64 is not supported; entry exceeds 4 GiB.");
+    }
+
+    const compressedSize = deflateBytes.byteLength;
+    const originalSize = inputBytes.byteLength;
+    const checksum = crc32(inputBytes);
+    const flags = 0x0800; // UTF-8 filename
+    const method = 8; // Raw DEFLATE
+    const dosDate = 33; // 1980-01-01
+    const localSize = 30 + nameBytes.length;
+    const centralSize = 46 + nameBytes.length;
+    const centralOffset = localSize + compressedSize;
+    if (centralOffset > MAX_U32) {
+        throw new RangeError("ZIP64 is not supported; archive exceeds 4 GiB.");
+    }
+
+    const local = new Uint8Array(localSize);
+    const lh = new DataView(local.buffer);
+    lh.setUint32(0, 0x04034b50, true);
+    lh.setUint16(4, 20, true); // ZIP spec version 2.0 needed
+    lh.setUint16(6, flags, true);
+    lh.setUint16(8, method, true);
+    lh.setUint16(10, 0, true); // DOS time
+    lh.setUint16(12, dosDate, true);
+    lh.setUint32(14, checksum, true);
+    lh.setUint32(18, compressedSize, true);
+    lh.setUint32(22, originalSize, true);
+    lh.setUint16(26, nameBytes.length, true);
+    lh.setUint16(28, 0, true); // Extra field length
+    local.set(nameBytes, 30);
+
+    const central = new Uint8Array(centralSize);
+    const ch = new DataView(central.buffer);
+    ch.setUint32(0, 0x02014b50, true);
+    ch.setUint16(4, 20, true); // Created by ZIP 2.0
+    ch.setUint16(6, 20, true);
+    ch.setUint16(8, flags, true);
+    ch.setUint16(10, method, true);
+    ch.setUint16(12, 0, true);
+    ch.setUint16(14, dosDate, true);
+    ch.setUint32(16, checksum, true);
+    ch.setUint32(20, compressedSize, true);
+    ch.setUint32(24, originalSize, true);
+    ch.setUint16(28, nameBytes.length, true);
+    ch.setUint16(30, 0, true);
+    ch.setUint16(32, 0, true); // File comment length
+    ch.setUint16(34, 0, true); // Disk start
+    ch.setUint16(36, 0, true); // Internal attributes
+    ch.setUint32(38, 0, true); // External attributes
+    ch.setUint32(42, 0, true); // Local header offset
+    central.set(nameBytes, 46);
+
+    const end = new Uint8Array(22);
+    const eh = new DataView(end.buffer);
+    eh.setUint32(0, 0x06054b50, true);
+    eh.setUint16(4, 0, true);
+    eh.setUint16(6, 0, true);
+    eh.setUint16(8, 1, true);
+    eh.setUint16(10, 1, true);
+    eh.setUint32(12, centralSize, true);
+    eh.setUint32(16, centralOffset, true);
+    eh.setUint16(20, 0, true);
+
+    return new Blob([local, deflateBytes, central, end], {
+        type: "application/zip"
+    });
+}
+
+/**
+ * The caller passes serialized JSON and its intended plain filename.
+ * Returns a ZIP containing that exact JSON or, on unsupported compression,
+ * a lossless .json fallback (never a mislabeled .zip).
+ */
+async function compressJsonAsZipOrPlain(json, fileName, options = {}) {
+    const now = options.now ?? (() => performance.now());
+    const zipSupported = options.CompressionStream ??
+        (typeof CompressionStream !== "undefined" ? CompressionStream : null);
+    const responseFactory = options.Response ??
+        (typeof Response !== "undefined" ? Response : null);
+    const start = now();
+    const bytes = new TextEncoder().encode(json);
+    const jsonBytes = bytes.byteLength;
+
+    try {
+        if (!zipSupported || !responseFactory) {
+            throw new Error("Native ZIP compression is not supported.");
+        }
+        const compressor = new zipSupported("deflate-raw");
+        const stream = new Blob([bytes]).stream().pipeThrough(compressor);
+        const compressed = new Uint8Array(
+            await new responseFactory(stream).arrayBuffer()
+        );
+        const zip = encodeZipSingleFile(fileName, bytes, compressed);
+        return {
+            blob: zip,
+            fileName: fileName.replace(/\.json$/i, ".zip"),
+            format: "zip",
+            jsonBytes,
+            archiveBytes: zip.size,
+            compressionMs: Math.round((now() - start) * 10) / 10,
+            warning: null
+        };
+    } catch (error) {
+        // Fallback is explicit and never silently produces a corrupt ZIP.
+        const plain = new Blob([bytes], {
+            type: "application/json;charset=utf-8"
+        });
+        return {
+            blob: plain,
+            fileName,
+            format: "json",
+            jsonBytes,
+            archiveBytes: plain.size,
+            compressionMs: Math.round((now() - start) * 10) / 10,
+            warning: "ZIP unavailable; downloaded uncompressed JSON instead."
+        };
+    }
+}
+
+if (typeof module !== "undefined" && module.exports) {
+    module.exports = { crc32, encodeZipSingleFile, compressJsonAsZipOrPlain };
+}
+
+"use strict";
+
 // Greasemonkey/Tampermonkey UI adapter. Core embedded by build-userscript.js.
 // Do not run an export automatically when ChatGPT loads.
 (function installExportCommand() {
@@ -461,6 +623,7 @@ if (typeof module !== "undefined" && module.exports) {
         controller: null,
         panel: null,
         profiler: null,
+        exportSettled: false,
         statusText: "Ready.",
         detailText: ""
     };
@@ -550,7 +713,7 @@ if (typeof module !== "undefined" && module.exports) {
             state.controller?.abort();
         });
         const saveProfile = makeButton("Save performance report", () => {
-            if (state.profiler?.hasSamples()) {
+            if (state.exportSettled && state.profiler) {
                 downloadProfile(state.profiler.report());
                 report("Performance report downloaded.", "The report excludes chat content and identifiers.");
             }
@@ -561,11 +724,18 @@ if (typeof module !== "undefined" && module.exports) {
         });
         setCancelEnabled(cancel, Boolean(state.controller &&
             !state.controller.signal.aborted));
-        saveProfile.disabled = !state.profiler?.hasSamples();
+        updatePerformanceAction({ saveProfile });
         root.appendChild(actions);
         document.body.appendChild(root);
         state.panel = { root, status, progress, cancel, saveProfile };
         return state.panel;
+    }
+
+    function updatePerformanceAction(panel) {
+        const available = state.exportSettled && Boolean(state.profiler);
+        panel.saveProfile.hidden = !available;
+        panel.saveProfile.style.display = available ? "" : "none";
+        panel.saveProfile.disabled = !available;
     }
 
     function report(message, detail = "") {
@@ -578,7 +748,7 @@ if (typeof module !== "undefined" && module.exports) {
         if (panel) {
             panel.status.textContent = message;
             panel.progress.textContent = detail;
-            panel.saveProfile.disabled = !state.profiler?.hasSamples();
+            updatePerformanceAction(panel);
         }
         console.info("[ChatGPT Conversation Exporter]", message, detail);
     }
@@ -594,20 +764,33 @@ if (typeof module !== "undefined" && module.exports) {
         setTimeout(() => URL.revokeObjectURL(url), 60000);
     }
 
-    function download(data) {
+    async function download(data, signal) {
         const started = performance.now();
         const json = JSON.stringify(data, null, 2);
         const serializationMs = Math.round((performance.now() - started) * 10) / 10;
-        const blob = new Blob([json], {
-            type: "application/json;charset=utf-8"
-        });
-        const fileName = "chatgpt-conversation-" + data.conversation_id + ".json";
-        saveBlob(blob, fileName);
+        const jsonFileName = "chatgpt-conversation-" + data.conversation_id + ".json";
+        const compressed = await compressJsonAsZipOrPlain(json, jsonFileName);
+
+        // A user can cancel while native compression is still underway.
+        if (signal.aborted) {
+            const error = new Error("Export cancelled during compression.");
+            error.name = "AbortError";
+            throw error;
+        }
+
+        if (compressed.warning) {
+            console.warn("[ChatGPT Conversation Exporter]", compressed.warning);
+        }
+        saveBlob(compressed.blob, compressed.fileName);
         return {
-            fileName,
-            sizeMiB: (blob.size / 1048576).toFixed(2),
-            json_bytes: blob.size,
-            serialization_ms: serializationMs
+            fileName: compressed.fileName,
+            format: compressed.format,
+            sizeMiB: (compressed.archiveBytes / 1048576).toFixed(2),
+            json_bytes: compressed.jsonBytes,
+            archive_bytes: compressed.archiveBytes,
+            compression_ms: compressed.compressionMs,
+            serialization_ms: serializationMs,
+            warning: compressed.warning
         };
     }
 
@@ -653,6 +836,8 @@ if (typeof module !== "undefined" && module.exports) {
         }
 
         const session = state.session;
+        state.exportSettled = false;
+        if (state.panel?.root?.isConnected) updatePerformanceAction(state.panel);
         state.controller = new AbortController();
         const signal = state.controller.signal;
         setCancelEnabled(showPanel().cancel, true);
@@ -689,13 +874,15 @@ if (typeof module !== "undefined" && module.exports) {
                 throw new Error("Pagination end was not verified.");
             }
 
-            const result = download(output);
+            const result = await download(output, signal);
             state.profiler.noteDownload(result);
             report(
-                "Export complete – JSON download started.",
+                "Export complete – " + result.format.toUpperCase() +
+                    " download started.",
                 output.local_export_audit.pages_loaded + " API pages, " +
                 output.local_export_audit.unique_records + " unique message records; " +
-                result.sizeMiB + " MiB – " + result.fileName
+                result.sizeMiB + " MiB – " + result.fileName +
+                (result.warning ? " | " + result.warning : "")
             );
         } catch (error) {
             const interrupted = signal.aborted || error.name === "AbortError";
@@ -708,7 +895,11 @@ if (typeof module !== "undefined" && module.exports) {
         } finally {
             state.profiler.runEnded(runStarted);
             state.controller = null;
-            if (state.panel) setCancelEnabled(state.panel.cancel, false);
+            state.exportSettled = true;
+            if (state.panel?.root?.isConnected) {
+                setCancelEnabled(state.panel.cancel, false);
+                updatePerformanceAction(state.panel);
+            }
         }
     }
 
