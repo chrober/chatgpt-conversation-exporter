@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Conversation Exporter
 // @namespace    https://github.com/chrober/chatgpt-conversation-exporter
-// @version      0.1.8
+// @version      0.1.9
 // @author       Christoph O'Bermair
 // @description  Export the current ChatGPT conversation as JSON.
 // @match        https://chatgpt.com/*
@@ -148,11 +148,19 @@ function createExportSession(options) {
         sleep = wait,
         maxPages = 5000,
         maxAttempts = 4,
-        requestDelayMs = 250
+        requestDelayMs = 250,
+        numTurns = 1,
+        fallbackAfterErrors = 2
     } = options;
 
     if (typeof fetchImpl !== "function") {
         throw new Error("fetchImpl is required.");
+    }
+    if (!Number.isInteger(numTurns) || numTurns < 1 || numTurns > 3) {
+        throw new RangeError("numTurns must be an integer between 1 and 3.");
+    }
+    if (!Number.isInteger(requestDelayMs) || requestDelayMs < 0) {
+        throw new RangeError("requestDelayMs must be a nonnegative integer.");
     }
 
     const { conversationId, sourceUrl } = parseConversationUrl(suppliedUrl);
@@ -160,6 +168,10 @@ function createExportSession(options) {
     let nextCursor = null;
     let completed = false;
     let running = false;
+    // The larger batch is experimental. If it repeatedly times out, switch
+    // to the proven 1-turn mode for the remaining pages and any resume.
+    let effectiveNumTurns = numTurns;
+    let fallbackCount = 0;
 
     function snapshot() {
         return {
@@ -168,7 +180,10 @@ function createExportSession(options) {
             pages: pages.length,
             records: pages.reduce((sum, page) => sum + page.messages.length, 0),
             completed,
-            running
+            running,
+            effectiveNumTurns,
+            fallbackCount,
+            requestDelayMs
         };
     }
 
@@ -188,18 +203,18 @@ function createExportSession(options) {
     }
 
     async function requestPage(headers, before, signal) {
-        const params = new URLSearchParams({
-            include_has_versions: "true",
-            num_turns: "1"
-        });
-        if (before) params.set("before", before);
-
-        const endpoint =
-            "/backend-api/conversations/" + conversationId +
-            "/messages?" + params.toString();
-
+        let consecutiveBatchErrors = 0;
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
             assertNotAborted(signal);
+            const params = new URLSearchParams({
+                include_has_versions: "true",
+                num_turns: String(effectiveNumTurns)
+            });
+            if (before) params.set("before", before);
+            const endpoint =
+                "/backend-api/conversations/" + conversationId +
+                "/messages?" + params.toString();
+
             try {
                 const response = await fetchImpl(endpoint, {
                     credentials: "include",
@@ -211,6 +226,8 @@ function createExportSession(options) {
                 if (!response.ok) {
                     const error = new Error("Message request: HTTP " + response.status);
                     error.retryable = TEMPORARY_HTTP_STATUSES.has(response.status);
+                    // 429 is rate limiting, not evidence of an oversized batch.
+                    error.batchFailure = [500, 502, 503, 504].includes(response.status);
                     throw error;
                 }
                 return await response.json();
@@ -219,6 +236,15 @@ function createExportSession(options) {
                 const retryable = error.retryable === true ||
                     error instanceof TypeError;
                 if (!retryable || attempt >= maxAttempts) throw error;
+
+                if (effectiveNumTurns > 1 &&
+                    (error.batchFailure || error instanceof TypeError)) {
+                    consecutiveBatchErrors++;
+                    if (consecutiveBatchErrors >= fallbackAfterErrors) {
+                        effectiveNumTurns = 1;
+                        fallbackCount++;
+                    }
+                }
                 await sleep(1500 * Math.pow(2, attempt - 1), signal);
             }
         }
@@ -309,6 +335,10 @@ function createExportProfiler(options = {}) {
     function instrumentFetch(fetchImpl, getPageNumber) {
         return async (url, options) => {
             const isAuth = url === "/api/auth/session";
+            // Only record public tuning parameters; never retain the URL,
+            // conversation ID or the secret pagination cursor.
+            const turnsMatch = isAuth ? null : /(?:[?&])num_turns=(\d+)/.exec(url);
+            const numTurns = turnsMatch ? Number(turnsMatch[1]) : null;
             const apiPage = isAuth ? 0 : getPageNumber();
             const attempt = isAuth ? 1 :
                 requests.filter(item =>
@@ -319,6 +349,7 @@ function createExportProfiler(options = {}) {
                 kind: isAuth ? "session" : "messages",
                 api_page: apiPage,
                 attempt,
+                num_turns: numTurns,
                 status: null,
                 outcome: null,
                 fetch_ms: null,
@@ -374,7 +405,8 @@ function createExportProfiler(options = {}) {
             cumulative_records: snapshot.records,
             http_attempts: attempts.length,
             fetch_ms: total(attempts, "fetch_ms"),
-            json_parse_ms: total(attempts, "parse_ms")
+            json_parse_ms: total(attempts, "parse_ms"),
+            num_turns: attempts.at(-1)?.num_turns ?? null
         });
         lastRecords = snapshot.records;
     }
@@ -414,7 +446,7 @@ function createExportProfiler(options = {}) {
         const recordCount = pages.at(-1)?.cumulative_records ?? 0;
         return {
             profile_format: "chatgpt-export-performance-v1",
-            userscript_version: "0.1.8",
+            userscript_version: "0.1.9",
             created_at: startedAt,
             reported_at: new Date().toISOString(),
             completed,
@@ -426,12 +458,18 @@ function createExportProfiler(options = {}) {
                 "HTTP Content-Length may refer to compressed transfer data and may be absent.",
                 "active_run_ms includes network, throttling, retries and processing, but excludes pauses between resumed runs.",
                 "Only completed API pages appear under pages. Failed attempts remain under requests.",
+                "num_turns records the numeric request batch setting; larger batches automatically fall back to 1 after repeated transient backend failures.",
                 "ZIP compression uses browser-native DEFLATE; archive_bytes measures the local ZIP output, not the original JSON size."
             ],
             summary: {
                 api_pages_completed: pages.length,
                 message_records: recordCount,
                 message_http_attempts: messageRequests.length,
+                requests_by_num_turns: messageRequests.reduce((counts, item) => {
+                    const key = String(item.num_turns ?? "unknown");
+                    counts[key] = (counts[key] || 0) + 1;
+                    return counts;
+                }, {}),
                 retries: messageRequests.filter(item => item.attempt > 1).length,
                 request_status_counts: httpStatusCounts,
                 network_header_wait_ms: sumFetch,
@@ -645,8 +683,7 @@ if (typeof module !== "undefined" && module.exports) {
         state.launcher.setAttribute("aria-busy", String(running));
     }
 
-    // The button already used the native disabled attribute; style it too so
-    // the completed (or cancelled) state is visually unmistakable.
+    // Keep native disabled semantics while an export is being cancelled.
     function setCancelEnabled(button, enabled) {
         button.disabled = !enabled;
         button.setAttribute("aria-disabled", String(!enabled));
@@ -750,6 +787,7 @@ if (typeof module !== "undefined" && module.exports) {
         setCancelEnabled(panel.cancel, canCancel);
         panel.cancel.hidden = !running;
         panel.cancel.style.display = running ? "" : "none";
+        panel.cancel.setAttribute("aria-hidden", String(!running));
 
         const canSave = state.exportSettled && Boolean(state.profiler);
         panel.saveProfile.hidden = !canSave;
@@ -830,12 +868,14 @@ if (typeof module !== "undefined" && module.exports) {
             return;
         }
 
-        // All panel openings require an explicit user action.
-        showPanel();
+        // First establish the new operation state, then render the panel.
+        // Showing the old completed panel before setting state.controller
+        // could briefly expose stale (greyed-out) controls on re-export.
         let current;
         try {
             current = parseConversationUrl(currentUrl());
         } catch (error) {
+            showPanel();
             report("No original ChatGPT conversation is open.", error.message);
             return;
         }
@@ -847,6 +887,8 @@ if (typeof module !== "undefined" && module.exports) {
             state.profiler = profiler;
             state.session = createExportSession({
                 sourceUrl: current.sourceUrl,
+                numTurns: 2,
+                requestDelayMs: 100,
                 fetchImpl: profiler.instrumentFetch(
                     (...args) => fetch(...args),
                     () => state.session?.snapshot().pages + 1 || 1
@@ -855,9 +897,8 @@ if (typeof module !== "undefined" && module.exports) {
         }
 
         const session = state.session;
-        state.exportSettled = false;
-        if (state.panel?.root?.isConnected) updatePanelActions(state.panel);
         state.controller = new AbortController();
+        state.exportSettled = false;
         updateLauncherActivity();
         const signal = state.controller.signal;
         updatePanelActions(showPanel());
