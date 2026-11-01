@@ -2,12 +2,12 @@
 
 Ein eigenständiges **Greasemonkey-/Tampermonkey-Userscript** zum lokalen JSON-Export **einer einzelnen, aktuell geöffneten Original-ChatGPT-Unterhaltung**. Kein Gesamtexport des Kontos und kein automatischer Export bei jedem Seitenaufruf.
 
-> **Status: Entwicklungsfassung 0.1.2 auf Feature-Branch.** Die zugrundeliegende Browser-Konsolen-Version wurde praktisch bestätigt. Die Tampermonkey-Version 0.1.1 wurde unter Firefox vom Anwender erfolgreich getestet. Die neuen 0.1.2-Änderungen (Position, englische Oberfläche und Profiling) benötigen noch einen abschließenden Browsertest.
+> **Status: Entwicklungsfassung 0.1.4 auf Feature-Branch.** Die zugrundeliegende Browser-Konsolen-Version wurde praktisch bestätigt. Die Tampermonkey-Version 0.1.1 wurde unter Firefox vom Anwender erfolgreich getestet. Die neuen 0.1.4-Änderungen (Position, englische Oberfläche und Profiling) benötigen noch einen abschließenden Browsertest.
 
 ## Installation und Bedienung
 
 1. Für Firefox **Tampermonkey** (oder Greasemonkey 4.11+) installieren.
-2. Die Datei [`userscripts/chatgpt-conversation-export.user.js`](userscripts/chatgpt-conversation-export.user.js) aus diesem Branch installieren. [Direktlink zur Raw-Datei](https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/refs/heads/feat/greasemonkey-single-conversation-export/userscripts/chatgpt-conversation-export.user.js). **Version 0.1.2:** Eine bereits installierte Version 0.1.0/0.1.1 aktualisieren oder ersetzen, nicht zusätzlich als zweites aktives Script installieren.
+2. Die Datei [`userscripts/chatgpt-conversation-export.user.js`](userscripts/chatgpt-conversation-export.user.js) aus diesem Branch installieren. [Direktlink zur Raw-Datei](https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/refs/heads/feat/greasemonkey-single-conversation-export/userscripts/chatgpt-conversation-export.user.js). **Version 0.1.4:** Eine bereits installierte Version 0.1.0/0.1.1 aktualisieren oder ersetzen, nicht zusätzlich als zweites aktives Script installieren.
 3. Auf `https://chatgpt.com` anmelden und **einen Original-Chat** öffnen: `/c/<uuid>` oder `/g/.../c/<uuid>`. Nach Installation/Update den Chat-Tab **neu laden**, um das neue Script auszuführen.
 4. Unten rechts auf der ChatGPT-Seite **„Export chat as JSON“** klicken. Alternativ den Befehl **„Export current chat as JSON“** im Userscript-Manager-Menü wählen, falls dieser angeboten wird. Der kleine Pfeil neben dem installierten Script in Tampermonkey öffnet **nur dessen Verwaltungsmenü**, nicht den Export.
 5. Das Statusfenster oberhalb des Export-Buttons zeigt **„API pages“** und **„message records“** an. **Cancel** unterbricht den Abruf, **Export chat as JSON** setzt ihn im selben Tab fort. Nach mindestens einer Antwort steht **„Save performance report“** für einen separaten, optionalen Download bereit.
@@ -27,6 +27,7 @@ Ausführliche Hinweise: [Installation / manueller Smoke-Test](docs/installation-
 - Verhinderung von Cursor-Schleifen; Validierung aller Seiten, Deduplizierung und Audit im JSON
 - Englische Statusmeldungen mit **API pages** (= paginierte HTTP-Antworten, keine Browserseiten) und **message records** (= technische Nachrichtendatensätze)
 - Optionaler **„Save performance report“**-Download ohne Chat-Inhalte/IDs: HTTP-Status, Retries, Datensätze und Zeiten pro API-Seite, JSON-Parsing und Serialisierung
+- **Cancel** ist nur während eines laufenden Exports aktiv; danach **disabled und sichtbar grau**. Die Änderung ist durch einen UI-Test abgesichert.
 - Keine Laufzeitbibliotheken, keine externen `@require`-Skripte
 
 ## Entwicklung
@@ -40,7 +41,7 @@ npm run check
 
 Die **Quellen** liegen in `src/exporter-core.js` (testbare API-/Paginierungslogik), `src/profiling.js` (inhaltfreies Performance-Profiling) und `src/userscript-entry.js` (Userscript-Manager-Menü, Export-Button, Statusfenster, Download). `scripts/build-userscript.js` generiert daraus deterministisch `userscripts/chatgpt-conversation-export.user.js`. Bitte **nicht nur die generierte Datei** bearbeiten. Die CI überprüft Syntax, Bundle-Gleichheit und Node-basierte Tests und vermeidet Push+PR-Doppelruns: Push nur auf `main`, PR auf Feature-Branches. Reine Dokumentationsänderungen lösen keine CI aus.
 
-Architektur und Grenzen: [Technische Dokumentation](docs/architecture-and-limitations.md).
+Architektur und Grenzen: [Technische Dokumentation](docs/architecture-and-limitations.md). Der erste anonymisierte [Performance-Baseline-Bericht](docs/performance-baseline-2026-11-01.md) beschreibt Engpässe und kontrollierte Optimierungsexperimente.
 
 ## Herkunft und Evidenz
 
