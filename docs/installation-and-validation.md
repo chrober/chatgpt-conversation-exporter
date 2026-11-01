@@ -62,6 +62,32 @@ Higher batch sizes may cause slow or oversized responses. **Only values up to 3 
 
 A new browser tab normally loads the durable saved values rather than unsaved changes made in another tab. Some browsers restore session storage when restoring tabs; that may preserve session-only values longer than an ordinary new tab.
 
+## Experimental file attachments (feature branch only)
+
+**Version 0.3.0-beta.1** adds a default-OFF **Include attachments (experimental)** checkbox below Turns and Delay in the gear panel. Setting the checkbox is session-only until **Save** is clicked. **Load defaults** turns it off; Save after loading defaults makes this choice permanent.
+
+Install the [experimental branch build](https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/refs/heads/feat/optional-conversation-attachments/userscripts/chatgpt-conversation-export.user.js) as an **update/replacement** for the existing userscript, not as a second active copy. The published main-branch v0.2.3 remains unaffected.
+
+When enabled, the ZIP includes the unchanged conversation JSON, `attachments-manifest.json`, and zero or more numbered entries under `attachments/`. File references are discovered from structured message attachments/asset pointers and assistant `sandbox:/mnt/data/...` links. The binary fetch is **best effort**, not a completeness guarantee; unavailable and expired files are recorded in the manifest. External signed URLs are deliberately not followed in this first experiment.
+
+Files are limited to **100 attempted references**, **50 MiB each**, **200 MiB total**. The archive is still a valid ZIP if DEFLATE is unavailable (with stored/uncompressed entries). Cancelling interrupts both conversation pagination and subsequent file retrieval. A multi-ZIP packaging error triggers a clearly indicated conversation-only fallback. Avoid uploading ZIPs or manifests containing private conversation information to GitHub.
+
+### Manual Firefox/Tampermonkey acceptance
+
+- [ ] Verify version 0.3.0-beta.1 and that the checkbox defaults to **off** on a new installation.
+- [ ] With checkbox **off**, export a known conversation; ZIP still has exactly one conversation JSON file and its content matches the main-branch export.
+- [ ] Upload a small ordinary file (e.g., a text file or PDF) to a test conversation; enable the checkbox and export. Inspect the manifest; confirm the file is present under `attachments/` and its bytes match the original.
+- [ ] Ask the assistant to generate a small CSV linked as `sandbox:/mnt/data/...`; export with the option enabled. Check whether the interpreter download succeeds; if not, the manifest should show a failed item rather than falsely claiming success.
+- [ ] Repeat with a user-uploaded image and, if available, an assistant-generated image; document which file-pointer variants are recognized.
+- [ ] Delete or make a referenced file inaccessible; check the manifest shows the missing file without omitting conversation JSON.
+- [ ] Check displayed **Attachments: N/M downloaded** and any partial-download warning.
+- [ ] Confirm invalid/foreign redirect URLs are never followed and no signed download URL or access token appears in the manifest.
+- [ ] Test **Cancel** while a file is downloading; it must not create a falsely complete archive.
+- [ ] Confirm **Save** persists the checkbox; **Load defaults** clears it only for the session unless saved again.
+- [ ] Compare a multi-file ZIP and a plain conversation ZIP using `node scripts/compare-exports.js`; it must compare the conversation messages and ignore attachment binaries.
+
+These steps **have not yet been verified with live ChatGPT files**. The download APIs are unofficial and may differ by account or file type.
+
 ## Validate two exports offline
 
 Use **Node.js 22+** and the local comparison script:
