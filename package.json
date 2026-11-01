@@ -1,6 +1,6 @@
 {
   "name": "chatgpt-conversation-exporter",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "description": "Greasemonkey userscript for local single-conversation JSON exports",
   "license": "MIT",
