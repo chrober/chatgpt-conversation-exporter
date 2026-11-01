@@ -6,7 +6,8 @@
     const state = {
         session: null,
         controller: null,
-        panel: null
+        panel: null,
+        profiler: null
     };
 
     function currentUrl() {
@@ -17,10 +18,10 @@
         if (state.panel?.root?.isConnected) return state.panel;
         const root = document.createElement("aside");
         root.setAttribute("role", "region");
-        root.setAttribute("aria-label", "ChatGPT JSON-Export");
+        root.setAttribute("aria-label", "ChatGPT JSON Export");
         Object.assign(root.style, {
             position: "fixed",
-            bottom: "18px",
+            bottom: "68px",
             right: "18px",
             zIndex: "2147483647",
             width: "min(360px, calc(100vw - 36px))",
@@ -43,7 +44,7 @@
         const status = document.createElement("div");
         status.setAttribute("role", "status");
         status.setAttribute("aria-live", "polite");
-        status.textContent = "Bereit.";
+        status.textContent = "Ready.";
         root.appendChild(status);
 
         const progress = document.createElement("div");
@@ -55,6 +56,7 @@
         actions.style.marginTop = "12px";
         actions.style.display = "flex";
         actions.style.gap = "8px";
+        actions.style.flexWrap = "wrap";
 
         function makeButton(text, onClick) {
             const button = document.createElement("button");
@@ -74,17 +76,24 @@
             return button;
         }
 
-        const cancel = makeButton("Abbrechen", () => {
+        const cancel = makeButton("Cancel", () => {
             state.controller?.abort();
         });
-        makeButton("Schließen", () => {
+        const saveProfile = makeButton("Save performance report", () => {
+            if (state.profiler?.hasSamples()) {
+                downloadProfile(state.profiler.report());
+                report("Performance report downloaded.", "The report excludes chat content and identifiers.");
+            }
+        });
+        makeButton("Close", () => {
             root.remove();
             state.panel = null;
         });
         cancel.disabled = true;
+        saveProfile.disabled = !state.profiler?.hasSamples();
         root.appendChild(actions);
         document.body.appendChild(root);
-        state.panel = { root, status, progress, cancel };
+        state.panel = { root, status, progress, cancel, saveProfile };
         return state.panel;
     }
 
@@ -92,30 +101,50 @@
         const panel = showPanel();
         panel.status.textContent = message;
         panel.progress.textContent = detail;
+        panel.saveProfile.disabled = !state.profiler?.hasSamples();
         console.info("[ChatGPT Conversation Exporter]", message, detail);
     }
 
-    function download(data) {
-        const json = JSON.stringify(data, null, 2);
-        const blob = new Blob([json], {
-            type: "application/json;charset=utf-8"
-        });
+    function saveBlob(blob, fileName) {
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
-        const fileName = "chatgpt-conversation-" + data.conversation_id + ".json";
         link.href = url;
         link.download = fileName;
         document.body.appendChild(link);
         link.click();
         link.remove();
-        // Keep the blob alive long enough for the download to begin.
         setTimeout(() => URL.revokeObjectURL(url), 60000);
-        return { fileName, sizeMiB: (blob.size / 1048576).toFixed(2) };
+    }
+
+    function download(data) {
+        const started = performance.now();
+        const json = JSON.stringify(data, null, 2);
+        const serializationMs = Math.round((performance.now() - started) * 10) / 10;
+        const blob = new Blob([json], {
+            type: "application/json;charset=utf-8"
+        });
+        const fileName = "chatgpt-conversation-" + data.conversation_id + ".json";
+        saveBlob(blob, fileName);
+        return {
+            fileName,
+            sizeMiB: (blob.size / 1048576).toFixed(2),
+            json_bytes: blob.size,
+            serialization_ms: serializationMs
+        };
+    }
+
+    function downloadProfile(profile) {
+        // Profiling JSON contains only counters and timings, never raw messages.
+        const blob = new Blob([JSON.stringify(profile, null, 2)], {
+            type: "application/json;charset=utf-8"
+        });
+        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+        saveBlob(blob, "chatgpt-export-performance-" + timestamp + ".json");
     }
 
     async function startExport() {
         if (state.controller) {
-            report("Ein Export läuft bereits.");
+            report("An export is already running.");
             return;
         }
 
@@ -123,16 +152,21 @@
         try {
             current = parseConversationUrl(currentUrl());
         } catch (error) {
-            report("Kein Original-Chat geöffnet.", error.message);
+            report("No original ChatGPT conversation is open.", error.message);
             return;
         }
 
         // SPA navigation: a new chat gets a distinct in-memory session.
         if (!state.session ||
             state.session.conversationId !== current.conversationId) {
+            const profiler = createExportProfiler();
+            state.profiler = profiler;
             state.session = createExportSession({
                 sourceUrl: current.sourceUrl,
-                fetchImpl: (...args) => fetch(...args)
+                fetchImpl: profiler.instrumentFetch(
+                    (...args) => fetch(...args),
+                    () => state.session?.snapshot().pages + 1 || 1
+                )
             });
         }
 
@@ -140,12 +174,13 @@
         state.controller = new AbortController();
         const signal = state.controller.signal;
         showPanel().cancel.disabled = false;
+        const runStarted = state.profiler.runStarted();
 
         try {
             const initial = session.snapshot();
             report(
-                initial.pages ? "Setze Export fort ..." : "Starte Export ...",
-                initial.pages + " gespeicherte Seiten"
+                initial.pages ? "Resuming export ..." : "Starting export ...",
+                initial.pages + " API pages already saved"
             );
 
             const output = await session.run({
@@ -153,40 +188,43 @@
                 checkContext: id => {
                     if (parseConversationUrl(currentUrl()).conversationId !== id) {
                         throw new Error(
-                            "Chat während des Exports gewechselt. " +
-                            "Zum vorherigen Chat zurückkehren und erneut starten."
+                            "Conversation changed during export. " +
+                            "Return to the previous conversation to resume."
                         );
                     }
                 },
                 onProgress: info => {
+                    state.profiler.trackPage(info);
                     report(
-                        "Lade Nachrichten ...",
-                        info.pages + " Seiten, " + info.records +
-                        " Datensätze; weitere ältere Seiten werden geprüft"
+                        "Fetching conversation ...",
+                        info.pages + " API pages, " + info.records +
+                        " message records; checking for older pages"
                     );
                 }
             });
 
             if (!output.local_export_audit.pagination_verified) {
-                throw new Error("Ende der Paginierung nicht bestätigt.");
+                throw new Error("Pagination end was not verified.");
             }
 
             const result = download(output);
+            state.profiler.noteDownload(result);
             report(
-                "Export abgeschlossen – Download gestartet.",
-                output.local_export_audit.pages_loaded + " Seiten, " +
-                output.local_export_audit.unique_records + " eindeutige Datensätze; " +
+                "Export complete – JSON download started.",
+                output.local_export_audit.pages_loaded + " API pages, " +
+                output.local_export_audit.unique_records + " unique message records; " +
                 result.sizeMiB + " MiB – " + result.fileName
             );
         } catch (error) {
             const interrupted = signal.aborted || error.name === "AbortError";
             report(
-                interrupted ? "Export abgebrochen; später fortsetzbar." :
-                    "Export unterbrochen; erneut über Greasemonkey starten.",
+                interrupted ? "Export cancelled; you can resume." :
+                    "Export interrupted; click Export again to resume.",
                 error.message + " | " +
-                session.snapshot().pages + " Seiten im aktuellen Tab gespeichert"
+                session.snapshot().pages + " API pages retained in this tab"
             );
         } finally {
+            state.profiler.runEnded(runStarted);
             state.controller = null;
             if (state.panel) state.panel.cancel.disabled = true;
         }
@@ -194,7 +232,7 @@
 
     // Tampermonkey: GM_registerMenuCommand; Greasemonkey 4+: GM.registerMenuCommand.
     // Some managers only expose one of these APIs.
-    const menuLabel = "Aktuellen Chat als JSON exportieren";
+    const menuLabel = "Export current chat as JSON";
     try {
         if (typeof GM_registerMenuCommand === "function") {
             GM_registerMenuCommand(menuLabel, () => { void startExport(); });
@@ -203,14 +241,14 @@
             GM.registerMenuCommand(menuLabel, () => { void startExport(); });
         } else {
             console.info(
-                "[ChatGPT Conversation Exporter] Kein Userscript-Menü verfügbar; " +
-                "der Export-Button auf der Seite bleibt verwendbar."
+                "[ChatGPT Conversation Exporter] Menu API unavailable; " +
+                "use the in-page Export button."
             );
         }
     } catch (error) {
         console.warn(
-            "[ChatGPT Conversation Exporter] Menüregistrierung fehlgeschlagen; " +
-            "Export-Button bleibt verwendbar.", error
+            "[ChatGPT Conversation Exporter] Menu registration failed; " +
+            "the in-page Export button remains available.", error
         );
     }
 
@@ -224,13 +262,13 @@
         const button = document.createElement("button");
         button.id = "chatgpt-conversation-export-launcher";
         button.type = "button";
-        button.textContent = "Chat als JSON exportieren";
-        button.title = "Aktuell geöffneten Original-Chat als JSON exportieren";
+        button.textContent = "Export chat as JSON";
+        button.title = "Export the currently open original conversation as JSON";
         button.setAttribute("aria-label", button.title);
         Object.assign(button.style, {
             position: "fixed",
             bottom: "18px",
-            left: "18px",
+            right: "18px",
             zIndex: "2147483646",
             padding: "8px 12px",
             border: "1px solid #8c99a8",
