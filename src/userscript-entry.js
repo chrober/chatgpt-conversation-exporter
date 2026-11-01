@@ -102,7 +102,7 @@
         // Keep the spinner active during requests, retries and ZIP compression.
         if (!state.launcher || !state.launcherSpinner) return;
         const running = Boolean(state.controller);
-        state.launcherSpinner.style.display = running ? "inline-block" : "none";
+        state.launcherSpinner.style.display = running ? "inline-flex" : "none";
         state.launcher.setAttribute("aria-busy", String(running));
     }
 
@@ -445,13 +445,19 @@
             gap: "8px"
         });
 
-        // Inject one local keyframe rule. No timers or external dependencies.
+        // Three staggered CSS-animated dots; no timers or external dependencies.
         if (!document.getElementById("chatgpt-conversation-export-spinner-style")) {
             const css = document.createElement("style");
             css.id = "chatgpt-conversation-export-spinner-style";
             css.textContent =
-                "@keyframes chatgpt-conversation-export-spin {" +
-                "to { transform: rotate(360deg); }}";
+                "@keyframes chatgpt-conversation-export-dot-bounce {" +
+                "0%, 65%, 100% { transform: translateY(0); opacity: .4; }" +
+                "30% { transform: translateY(-4px); opacity: 1; }" +
+                "}" +
+                "@media (prefers-reduced-motion: reduce) {" +
+                "#chatgpt-conversation-export-spinner > span {" +
+                "animation: none !important; transform: none !important; " +
+                "opacity: 1 !important; }}";
             (document.head || document.body).appendChild(css);
         }
 
@@ -460,14 +466,25 @@
         spinner.setAttribute("aria-hidden", "true");
         Object.assign(spinner.style, {
             display: "none",
-            width: "12px",
+            width: "18px",
             height: "12px",
-            flexShrink: "0",
-            border: "2px solid rgba(255,255,255,0.85)",
-            borderTopColor: "transparent",
-            borderRadius: "50%",
-            animation: "chatgpt-conversation-export-spin 800ms linear infinite"
+            alignItems: "center",
+            gap: "3px",
+            flexShrink: "0"
         });
+        for (let index = 0; index < 3; index++) {
+            const dot = document.createElement("span");
+            Object.assign(dot.style, {
+                display: "inline-block",
+                width: "4px",
+                height: "4px",
+                borderRadius: "50%",
+                background: "currentColor",
+                animation: "chatgpt-conversation-export-dot-bounce 900ms ease-in-out infinite",
+                animationDelay: index * 150 + "ms"
+            });
+            spinner.appendChild(dot);
+        }
         button.appendChild(spinner);
         state.launcher = button;
         state.launcherSpinner = spinner;
