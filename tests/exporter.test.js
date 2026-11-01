@@ -424,3 +424,135 @@ test("Cancel is enabled during a fetch and visibly greyed out after success", as
         e.textContent === "Export complete – JSON download started."
     ));
 });
+
+
+function makeExportUiHarness() {
+    const code = fs.readFileSync(path.join(
+        __dirname, "../userscripts/chatgpt-conversation-export.user.js"
+    ), "utf8");
+    const elements = [];
+    const pending = [];
+    const urls = class extends URL {};
+    urls.createObjectURL = () => "blob:mock";
+    urls.revokeObjectURL = () => {};
+    let messageRequests = 0;
+
+    function element(tagName) {
+        const item = {
+            tagName,
+            style: {},
+            children: [],
+            listeners: {},
+            attributes: {},
+            disabled: false,
+            isConnected: false,
+            setAttribute(name, value) { this.attributes[name] = value; },
+            addEventListener(name, cb) { this.listeners[name] = cb; },
+            appendChild(child) {
+                this.children.push(child);
+                child.isConnected = this.isConnected;
+            },
+            remove() { this.isConnected = false; },
+            click() {}
+        };
+        elements.push(item);
+        return item;
+    }
+
+    const body = element("body");
+    body.isConnected = true;
+    const document = {
+        body,
+        createElement: element,
+        getElementById(id) {
+            return elements.find(item => item.id === id && item.isConnected) ?? null;
+        }
+    };
+    const fetchImpl = async url => {
+        if (url === "/api/auth/session") {
+            return { ok: true, status: 200, json: async () => ({}) };
+        }
+        messageRequests++;
+        return await new Promise(resolve => { pending.push(resolve); });
+    };
+    vm.runInNewContext(code, {
+        document,
+        URL: urls,
+        URLSearchParams,
+        window: { location: { origin: "https://chatgpt.com", pathname: "/c/" + ID } },
+        Blob,
+        AbortController,
+        performance,
+        setTimeout: cb => setImmediate(cb),
+        clearTimeout: clearImmediate,
+        console: { info() {}, warn() {} },
+        GM_registerMenuCommand() {},
+        fetch: fetchImpl
+    });
+    const launcher = document.getElementById("chatgpt-conversation-export-launcher");
+    const findButton = name => elements.filter(e =>
+        e.tagName === "button" && e.textContent === name && e.isConnected
+    ).at(-1);
+    const visiblePanel = () => elements.find(e =>
+        e.tagName === "aside" && e.isConnected
+    ) ?? null;
+    const settle = () => new Promise(resolve => setImmediate(resolve));
+    return {
+        launcher, pending, findButton, visiblePanel, settle,
+        get messageRequests() { return messageRequests; }
+    };
+}
+
+test("Close hides progress until explicitly reopened and never cancels active work", async () => {
+    const ui = makeExportUiHarness();
+    ui.launcher.listeners.click();
+    await ui.settle();
+    assert.equal(ui.messageRequests, 1);
+    assert.ok(ui.visiblePanel());
+    const cancel = ui.findButton("Cancel");
+    assert.equal(cancel.disabled, false);
+
+    ui.findButton("Close").listeners.click();
+    assert.equal(ui.visiblePanel(), null);
+    ui.pending[0](ok(page([msg("n1")], "cursor-end", false)));
+    await ui.settle();
+    await ui.settle();
+    // Progress/completion were delivered, but the dismissed panel stays hidden.
+    assert.equal(ui.visiblePanel(), null);
+    assert.equal(ui.messageRequests, 1);
+});
+
+test("reopening a dismissed running export restores progress and enabled Cancel", async () => {
+    const ui = makeExportUiHarness();
+    ui.launcher.listeners.click();
+    await ui.settle();
+    assert.equal(ui.messageRequests, 1);
+    ui.findButton("Close").listeners.click();
+
+    ui.pending[0](ok(page([msg("n2")], "cursor-next", true)));
+    await ui.settle();
+    await ui.settle();
+    assert.equal(ui.visiblePanel(), null);
+    assert.equal(ui.messageRequests, 2);
+
+    // Clicking the launcher during a running export shows the same
+    // session, retains its latest progress, and does not start new requests.
+    ui.launcher.listeners.click();
+    assert.ok(ui.visiblePanel());
+    const cancel = ui.findButton("Cancel");
+    assert.equal(cancel.disabled, false);
+    assert.equal(cancel.style.opacity, "1");
+    assert.equal(cancel.attributes["aria-disabled"], "false");
+    const progress = ui.visiblePanel().children.find(node =>
+        typeof node.textContent === "string" && node.textContent.includes("API pages")
+    );
+    assert.match(progress.textContent, /1 API pages, 1 message records/);
+    assert.equal(ui.messageRequests, 2);
+
+    // Completion after reopening must disable and grey out Cancel.
+    ui.pending[1](ok(page([msg("n1")], "cursor-oldest", false)));
+    await ui.settle();
+    await ui.settle();
+    assert.equal(cancel.disabled, true);
+    assert.equal(cancel.style.opacity, "0.55");
+});
