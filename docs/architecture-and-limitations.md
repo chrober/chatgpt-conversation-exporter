@@ -51,11 +51,19 @@ Nach verifiziertem Paginierungsende wird **derselbe JSON-Inhalt wie bisher** erz
 
 Die neue Diagnose enthält `summary.zip_compression_ms`, `summary.download_format`, `summary.exported_json_bytes`, `summary.archive_bytes` und `summary.compression_ratio` zusätzlich zu den bisherigen Feldern. Die Berichtserstellung erfolgt weiterhin nur auf Nutzeraktion nach dem Terminalzustand des Exports. Die Komprimierung ist noch **nicht** in einem realen Firefox-/Tampermonkey-Test verifiziert.
 
+## Versuch zur Performanceverbesserung (v0.1.9)
+
+Der im Userscript verwendete Startwert ist nun `num_turns=2` mit `requestDelayMs=100`; die testbare Core-API behält ihre bisherigen Standardwerte `numTurns=1` und `requestDelayMs=250`. Die Requests bleiben **streng sequentiell**, da der Cursor des nächsten Requests erst nach Erhalt der vorherigen Seite bekannt ist. Beim zweiten aufeinanderfolgenden retrybaren 5xx-/Netzwerkfehler derselben Seitenabfrage wird für den Rest der Session automatisch `num_turns=1` verwendet. HTTP 429 allein reduziert die Batchgröße nicht.
+
+Die unveränderte Paginierungs-, Cursor- und Duplicate-Prüfung soll weiterhin vollständige JSON-Exporte gewährleisten. Ein schnellerer Gesamt-Export **muss erst im Firefox an demselben Chat gemessen und anhand der Datensatzanzahl überprüft werden**. Die Diagnose speichert die anonyme `num_turns`-Zahl je Request und die Verteilung im Summary. Ein erneuter Download aus einer bereits abgeschlossenen Browser-Session misst **keinen neuen HTTP-Abruf**; für einen kontrollierten Vergleich vor dem Lauf die Seite neu laden.
+
+Beim neuen Export nach **Close** wird die Controller-/UI-Phase vor dem Anzeigen des Fensters initialisiert; nach Erfolg/Fehler/Abbruch wird Cancel vollständig ausgeblendet. Regressionstests decken ausdrücklich das Wiederholen eines abgeschlossenen Exports ab.
+
 ## Bewährtes API-Verhalten
 
 - Gesprächs-URL: `window.location.origin + window.location.pathname`; Original-Chat-ID aus `/c/<UUID>`, auch unter `/g/.../c/<UUID>`.
 - Authentifizierung über vorhandenen Browserkontext: `GET /api/auth/session`, `credentials: include`; optionaler `Authorization: Bearer ...`-Header; Token **nur im Speicher**, nicht protokollieren.
-- Nachrichten: `GET /backend-api/conversations/{id}/messages?include_has_versions=true&num_turns=1`. `num_turns=1` begrenzt **nicht** die Anzahl technischer Datensätze; Seiten können stark variierende Größen aufweisen.
+- Nachrichten: `GET /backend-api/conversations/{id}/messages?include_has_versions=true&num_turns=N`. Der Core nutzt standardmäßig `N=1`; der experimentelle Userscript-Modus beginnt mit `N=2` und kann auf `N=1` zurückfallen. `num_turns` begrenzt **nicht** die Anzahl technischer Datensätze; Seiten können stark variieren.
 - Ältere Seiten: `before=<page_info.start_cursor>`, bis `page_info.has_previous_page === false`.
 - Doppelte IDs nur bei identischen Daten deduplizieren; widersprüchliche Duplikate, fehlende Cursor oder ungültige/ leere Seiten verhindern einen angeblich vollständigen Download.
 - Ausfälle: bis zu vier Versuche bei HTTP 429/500/502/503/504 oder Netzwerkfehlern. Nach einem Abbruch bleiben vollständig validierte Seiten im Tab-RAM; Reload löscht den Fortschritt.
@@ -98,4 +106,4 @@ Das JSON-Beispiel ist eine **Formillustration**, keine realistische vollständig
 
 Der **Konsolen-V2-Exporter** (nicht die Greasemonkey-Fassung) wurde am 31.10.2026 für einen sehr langen technischen Chat zweimal erfolgreich verwendet: **64 Seiten, 4.970 eindeutige Datensätze, 0 Duplikate, 55,35 MiB**, Paginierung beendet. Der nicht-paginierte Conversation-Endpunkt scheiterte mit `HTTP 500 {"detail":"Request timeout"}`. Die automatische URL-Erkennung wurde separat im Browser bestätigt.
 
-Der Export wurde unter Tampermonkey in Firefox praktisch bestätigt. Für die neue Version 0.1.8 steht noch die spezifische Browser-Abnahme von **ZIP-Export**, **Fallback**, **Close**, Wiederöffnen und terminalem Profiling aus.
+Der Export wurde unter Tampermonkey in Firefox praktisch bestätigt. Für die neue Version 0.1.9 steht noch die spezifische Browser-Abnahme von **ZIP-Export**, **Fallback**, **Close**, Wiederöffnen und terminalem Profiling aus.
