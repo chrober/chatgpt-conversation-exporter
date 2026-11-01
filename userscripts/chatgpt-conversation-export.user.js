@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Conversation Exporter
 // @namespace    https://github.com/chrober/chatgpt-conversation-exporter
-// @version      0.1.4
+// @version      0.1.5
 // @author       Christoph O'Bermair
 // @description  Export the current ChatGPT conversation as JSON.
 // @match        https://chatgpt.com/*
@@ -407,7 +407,7 @@ function createExportProfiler(options = {}) {
         const recordCount = pages.at(-1)?.cumulative_records ?? 0;
         return {
             profile_format: "chatgpt-export-performance-v1",
-            userscript_version: "0.1.4",
+            userscript_version: "0.1.5",
             created_at: startedAt,
             reported_at: new Date().toISOString(),
             completed,
@@ -460,7 +460,9 @@ if (typeof module !== "undefined" && module.exports) {
         session: null,
         controller: null,
         panel: null,
-        profiler: null
+        profiler: null,
+        statusText: "Ready.",
+        detailText: ""
     };
 
     function currentUrl() {
@@ -511,12 +513,13 @@ if (typeof module !== "undefined" && module.exports) {
         const status = document.createElement("div");
         status.setAttribute("role", "status");
         status.setAttribute("aria-live", "polite");
-        status.textContent = "Ready.";
+        status.textContent = state.statusText;
         root.appendChild(status);
 
         const progress = document.createElement("div");
         progress.style.marginTop = "8px";
         progress.style.color = "#c4cedb";
+        progress.textContent = state.detailText;
         root.appendChild(progress);
 
         const actions = document.createElement("div");
@@ -556,7 +559,8 @@ if (typeof module !== "undefined" && module.exports) {
             root.remove();
             state.panel = null;
         });
-        setCancelEnabled(cancel, false);
+        setCancelEnabled(cancel, Boolean(state.controller &&
+            !state.controller.signal.aborted));
         saveProfile.disabled = !state.profiler?.hasSamples();
         root.appendChild(actions);
         document.body.appendChild(root);
@@ -565,10 +569,17 @@ if (typeof module !== "undefined" && module.exports) {
     }
 
     function report(message, detail = "") {
-        const panel = showPanel();
-        panel.status.textContent = message;
-        panel.progress.textContent = detail;
-        panel.saveProfile.disabled = !state.profiler?.hasSamples();
+        // Keep progress up to date even while the panel is dismissed.
+        // Close only hides the view; it must never abort the active export
+        // or allow the next progress event to recreate the panel.
+        state.statusText = message;
+        state.detailText = detail;
+        const panel = state.panel?.root?.isConnected ? state.panel : null;
+        if (panel) {
+            panel.status.textContent = message;
+            panel.progress.textContent = detail;
+            panel.saveProfile.disabled = !state.profiler?.hasSamples();
+        }
         console.info("[ChatGPT Conversation Exporter]", message, detail);
     }
 
@@ -611,10 +622,14 @@ if (typeof module !== "undefined" && module.exports) {
 
     async function startExport() {
         if (state.controller) {
-            report("An export is already running.");
+            // Reopen the existing progress view; do not start another fetch
+            // or overwrite the latest progress status.
+            showPanel();
             return;
         }
 
+        // All panel openings require an explicit user action.
+        showPanel();
         let current;
         try {
             current = parseConversationUrl(currentUrl());
