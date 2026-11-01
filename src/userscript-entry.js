@@ -583,6 +583,10 @@
             attachmentData = await collectAttachments(
                 data.messages, data.conversation_id, {
                     signal, fetchImpl: (...args) => fetch(...args),
+                    // Diagnostic hint only; never grants access or changes
+                    // which authenticated endpoints may be requested.
+                    conversationScope: /\/g\/g-p-[^/]+\/c\//.test(
+                        new URL(data.source_url).pathname) ? "project" : "unknown",
                     onProgress: (n, total) => report(
                         "Downloading attachments ...",
                         "Attachment " + n + " of " + total
