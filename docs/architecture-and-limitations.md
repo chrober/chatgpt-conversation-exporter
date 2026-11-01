@@ -10,6 +10,8 @@ Ein dediziertes Greasemonkey-/Tampermonkey-Userscript ruft genau den **aktuell g
 - `src/profiling.js`: zeitbasierte Messung von Sitzungs-/Nachrichten-HTTP-Antworten, JSON-Parsing, Seiten-/Retry-Statistik, Export-Serialisierung, ZIP-Komprimierung und separat herunterladbarem redigiertem Diagnosebericht. Keine Rohdaten oder Identifikatoren.
 - `src/compression.js`: ZIP-32-Einzeldateiarchiv mit CRC32/UTF-8 und DEFLATE über `CompressionStream('deflate-raw')`. Fehlende Browserunterstützung oder Komprimierungsfehler führen zum unveränderten `.json`-Fallback; keine Drittanbieterbibliothek.
 - `src/userscript-entry.js`: persistenter UI-Status unabhängig vom DOM-Statusfenster; **Close** entfernt nur das Fenster, nicht den laufenden Export. Die Kontextaktionen sind gegenseitig exklusiv: **Cancel** während eines Exports, danach **Save performance report** (Erfolg, Fehler oder Abbruch); ohne aktiven Exportversuch sind beide verborgen. Fortschritt wird im Speicher weitergeführt, ein erneuter Launcher-Klick bei aktivem Export öffnet das Fenster mit aktivem Cancel, ohne erneut abzurufen. `GM_registerMenuCommand` für Tampermonkey bzw. `GM.registerMenuCommand` für Greasemonkey, zusätzlich ein fester in-Page-Startbutton **unten rechts** mit eigenständigem, animiertem CSS-Spinner, der am aktiven `AbortController`-Lebenszyklus hängt und beim Schließen des Statusfensters sichtbar bleibt, sowie ein darüber platziertes Statusfenster (englische Meldungen), Browser-Kontextprüfung im Klickmoment, Statusfenster, Abbruch über `AbortController`, Blob-/Browser-Download.
+- `scripts/compare-exports.js`: lokales Node.js-CLI zum ZIP-/JSON-Inhaltsvergleich (CRC32; SHA-256 pro Nachricht). Vergleicht Nachrichten-IDs, kanonisierte vollständige Nachrichtenobjekte und Reihenfolge, ohne IDs oder Inhalte auszugeben. Seitenmetadaten und Exportzeitpunkt sind ausgenommen; es erfolgt keinerlei Netzwerkzugriff.
+- Kleine **Mode**-Oberfläche: `Reference` (1 Turn / 250 ms), `Pacing test` (2 / 250), `Fast` (2 / 100, Standard) und `Experimental` (3 / 100). Modusänderungen sind während eines Exports nicht möglich. Ein Wechsel erzeugt die nächste API-Session neu, während unveränderter Modus seine geladenen Seiten für Resume und ZIP-Re-Download behält.
 - `scripts/build-userscript.js`: deterministische Zusammenführung der Quellen mit Userscript-Metadaten; keine Runtime-CDNs, keine `@require`-Abhängigkeiten.
 - `userscripts/chatgpt-conversation-export.user.js`: **installierbares, generiertes Artefakt**, nicht direkt editieren.
 - `tests/exporter.test.js`: simulierte API-Antworten, keine realen Chat- oder Sitzungsdaten.
@@ -51,7 +53,7 @@ Nach verifiziertem Paginierungsende wird **derselbe JSON-Inhalt wie bisher** erz
 
 Die neue Diagnose enthält `summary.zip_compression_ms`, `summary.download_format`, `summary.exported_json_bytes`, `summary.archive_bytes` und `summary.compression_ratio` zusätzlich zu den bisherigen Feldern. Die Berichtserstellung erfolgt weiterhin nur auf Nutzeraktion nach dem Terminalzustand des Exports. Die Komprimierung ist noch **nicht** in einem realen Firefox-/Tampermonkey-Test verifiziert.
 
-## Versuch zur Performanceverbesserung (v0.1.9)
+## Versuch zur Performanceverbesserung (v0.1.10)
 
 Der im Userscript verwendete Startwert ist nun `num_turns=2` mit `requestDelayMs=100`; die testbare Core-API behält ihre bisherigen Standardwerte `numTurns=1` und `requestDelayMs=250`. Die Requests bleiben **streng sequentiell**, da der Cursor des nächsten Requests erst nach Erhalt der vorherigen Seite bekannt ist. Beim zweiten aufeinanderfolgenden retrybaren 5xx-/Netzwerkfehler derselben Seitenabfrage wird für den Rest der Session automatisch `num_turns=1` verwendet. HTTP 429 allein reduziert die Batchgröße nicht.
 
@@ -106,4 +108,4 @@ Das JSON-Beispiel ist eine **Formillustration**, keine realistische vollständig
 
 Der **Konsolen-V2-Exporter** (nicht die Greasemonkey-Fassung) wurde am 31.10.2026 für einen sehr langen technischen Chat zweimal erfolgreich verwendet: **64 Seiten, 4.970 eindeutige Datensätze, 0 Duplikate, 55,35 MiB**, Paginierung beendet. Der nicht-paginierte Conversation-Endpunkt scheiterte mit `HTTP 500 {"detail":"Request timeout"}`. Die automatische URL-Erkennung wurde separat im Browser bestätigt.
 
-Der Export wurde unter Tampermonkey in Firefox praktisch bestätigt. Für die neue Version 0.1.9 steht noch die spezifische Browser-Abnahme von **ZIP-Export**, **Fallback**, **Close**, Wiederöffnen und terminalem Profiling aus.
+Der Export wurde unter Tampermonkey in Firefox praktisch bestätigt. Für die neue Version 0.1.10 steht noch die spezifische Browser-Abnahme von **ZIP-Export**, **Fallback**, **Close**, Wiederöffnen und terminalem Profiling aus.
