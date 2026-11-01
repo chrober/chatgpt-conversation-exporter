@@ -1,18 +1,18 @@
 # Installation, Bedienung und Firefox-Abnahme
 
-> Entwicklungsstand 0.1.11 (Tampermonkey + Greasemonkey). Die Version 0.1.1 wurde mit **Tampermonkey unter Firefox erfolgreich ausgeführt**. Die Auswahl der Benchmark-Modi und der Offline-Inhaltsvergleich müssen noch im realen Arbeitsablauf überprüft werden.
+> Entwicklungsstand 0.1.12 (Tampermonkey + Greasemonkey). Die Version 0.1.1 wurde mit **Tampermonkey unter Firefox erfolgreich ausgeführt**. Die Speicherung der Performance-Einstellungen benötigt noch eine Firefox-/Tampermonkey-Abnahme.
 
 ## Vorbereitungen
 
 - Firefox mit **Tampermonkey** oder Greasemonkey **4.11+**. Das Script unterstützt `GM_registerMenuCommand` und `GM.registerMenuCommand` und bietet zusätzlich einen immer sichtbaren Export-Button.
 - Bei `https://chatgpt.com` angemeldet sein und Zugriff auf den **Original-Chat** haben.
 - Genügend freier RAM und Festplattenspeicher; lange Chats können mehrere Dutzend MiB JSON erzeugen.
-- Das GitHub-Repository ist **öffentlich**. [V0.1.11 direkt aus dem Feature-Branch installieren](https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/refs/heads/feat/greasemonkey-single-conversation-export/userscripts/chatgpt-conversation-export.user.js). Falls Firefox keine Installation anbietet, den Raw-Inhalt in den Userscript-Editor einfügen. Eine vorhandene V0.1.0-/V0.1.1-Installation auf V0.1.11 aktualisieren oder ersetzen. Es gibt keine externen Bibliotheken.
+- Das GitHub-Repository ist **öffentlich**. [V0.1.12 direkt aus dem Feature-Branch installieren](https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/refs/heads/feat/greasemonkey-single-conversation-export/userscripts/chatgpt-conversation-export.user.js). Falls Firefox keine Installation anbietet, den Raw-Inhalt in den Userscript-Editor einfügen. Eine vorhandene V0.1.0-/V0.1.1-Installation auf V0.1.12 aktualisieren oder ersetzen. Es gibt keine externen Bibliotheken.
 
 ## Bedienung
 
 1. Original-Chat öffnen, etwa `https://chatgpt.com/c/<conversation-id>` oder `https://chatgpt.com/g/<projekt>/c/<conversation-id>`. **Nach Installation/Update Chat-Tab neu laden.**
-2. **Unten rechts auf der ChatGPT-Seite „Export chat as JSON“ klicken.** Für Benchmarks vorher den zusätzlichen **Mode**-Button öffnen und eine Konfiguration wählen: **Reference (1 Turn / 250 ms)**, **Pacing test (2 / 250)**, **Fast (2 / 100, Standard)** oder **Experimental (3 / 100)**. Die Auswahl ist während laufender Exporte gesperrt, und eine Änderung beginnt beim nächsten Start eine neue API-Sitzung. **Ein neuer Lauf mit derselben Einstellung erfordert ein Neuladen des Tabs**, sonst wird das bereits geladene Ergebnis erneut archiviert. Optional über den Greasemonkey-/Tampermonkey-Menüpunkt **„Export current chat as JSON“** starten. In Tampermonkey öffnet der Pfeil rechts neben dem Script-Namen lediglich **Bearbeiten / Problem melden / Löschen**, nicht die Exportaktion.
+2. **Unten rechts auf der ChatGPT-Seite „Export chat as JSON“ klicken.** Für Benchmarks vorher den zusätzlichen **Mode**-Button öffnen und eine Konfiguration wählen: **Reference (1 Turn / 250 ms)**, **Pacing test (2 / 250)**, **Previous Fast (2 / 100)**, **Recommended (3 / 100, Standard)** oder **Custom (1–3 Turns / 0–2000 ms Pause)**. Die Auswahl wird dauerhaft vom Userscript-Manager gespeichert. Die Auswahl ist während laufender Exporte gesperrt, und eine Änderung beginnt beim nächsten Start eine neue API-Sitzung. **Ein neuer Lauf mit derselben Einstellung erfordert ein Neuladen des Tabs**, sonst wird das bereits geladene Ergebnis erneut archiviert. Optional über den Greasemonkey-/Tampermonkey-Menüpunkt **„Export current chat as JSON“** starten. In Tampermonkey öffnet der Pfeil rechts neben dem Script-Namen lediglich **Bearbeiten / Problem melden / Löschen**, nicht die Exportaktion.
 3. Im Statusfenster oberhalb des Buttons **API pages** (paginierte HTTP-Antworten, keine UI-Seiten) und **message records** (technische Nachrichtenobjekte) beobachten. Der Export startet **nur nach der Klickaktion**.
 4. **Cancel** ist ausschließlich während eines laufenden Exports sichtbar. Nach Erfolg, Abbruch oder Fehler **verschwindet Cancel** und wird durch **Save performance report** ersetzt. **Close** schließt dagegen ausschließlich das Fortschrittsfenster: Der Export läuft im aktuellen Tab weiter und öffnet das Fenster nicht automatisch erneut. **Drei animierte Punkte (Dots) rechts im Export-Hauptbutton zeigen die Aktivität weiterhin an**, auch wenn das Fenster geschlossen wurde. Bei laufendem Export zeigt ein erneuter Klick auf **Export chat as JSON** das Fenster wieder mit dem aktuellen Fortschritt und aktivem **Cancel** – ohne weitere Exportinstanz oder doppelte Abfragen. Nach einem tatsächlichen Abbruch setzt ein erneuter Klick den Export ab der letzten validierten API-Seite fort.
 5. Nach **Export complete – ZIP download started** die Datei `chatgpt-conversation-<conversation-id>.zip` herunterladen und entpacken. Darin liegt die vollständige `chatgpt-conversation-<conversation-id>.json`. Wenn die native Browser-Komprimierung ausfällt, wird stattdessen automatisch das unkomprimierte `.json` gespeichert und dies im Statusfenster vermerkt.
@@ -61,13 +61,13 @@ Die CLI entpackt die eine JSON-Datei aus dem ZIP (CRC32-Prüfung), vergleicht vo
 - [ ] Keine Chat- oder Authentifizierungsdaten werden an andere Origins gesendet.
 - [ ] Kein privates JSON, kein Zugriffstoken in Git oder CI-Test-Logs.
 
-**Browserstatus:** Tampermonkey-Version 0.1.1 ist vom Anwender erfolgreich getestet. Der neue 0.1.11-Build mit Dots-Indikator muss noch überprüft werden. Automatisierte Tests können reale Firefox-Sandbox-, Layout- und Downloadprobleme nicht vollständig ausschließen.
+**Browserstatus:** Tampermonkey-Version 0.1.1 ist vom Anwender erfolgreich getestet. Der neue 0.1.12-Build mit Dots-Indikator muss noch überprüft werden. Automatisierte Tests können reale Firefox-Sandbox-, Layout- und Downloadprobleme nicht vollständig ausschließen.
 
 ## Fehlerdiagnose
 
 | Beobachtung | Maßnahme |
 | --- | --- |
-| Menüpunkt fehlt | Der Pfeil neben dem installierten Script in Tampermonkey zeigt nur Verwaltungsaktionen. **ChatGPT-Tab neu laden und unten rechts den Export-Button verwenden.** Scriptversion 0.1.11 sowie Grants `GM_registerMenuCommand` / `GM.registerMenuCommand` prüfen. |
+| Menüpunkt fehlt | Der Pfeil neben dem installierten Script in Tampermonkey zeigt nur Verwaltungsaktionen. **ChatGPT-Tab neu laden und unten rechts den Export-Button verwenden.** Scriptversion 0.1.12 sowie Grants `GM_registerMenuCommand` / `GM.registerMenuCommand` prüfen. |
 | `HTTP 401/403` | Angemeldete Sitzung und Sandbox-Zugriff prüfen; keine Token in Tickets posten. |
 | `HTTP 500 Request timeout` | Die Kernlogik nutzt direkte, kleine Paginierungsabfragen und wiederholt temporäre Fehler. |
 | `Paginierungsstatus fehlt`, leere Seite, Cursor wiederholt | API-Schema oder Daten verändert: bewusst **kein** Teil-Export; Diagnose ohne vertrauliche Daten erstellen. |
@@ -78,3 +78,21 @@ Die CLI entpackt die eine JSON-Datei aus dem ZIP (CRC32-Prüfung), vergleicht vo
 | `API pages` unterschiedlich groß | Jede API-Seite umfasst unterschiedlich viele technische `message records`; `num_turns=1` bedeutet **nicht** ein Datensatz pro API-Seite. |
 
 Das Userscript setzt bis zur ersten stabilen Version **keine** `@updateURL`/`@downloadURL`. Das Repository ist jetzt öffentlich, aber die Entwicklungsfassung wird noch direkt vom Feature-Branch installiert.
+
+
+## Persistente Performance-Einstellungen – Version 0.1.12
+
+Über **Mode** stehen vier Presets und **Custom** bereit. Standardmäßig wird **Recommended (3 Turns / 100 ms)** ausgewählt. Custom akzeptiert ausschließlich ganzzahlige **Turns zwischen 1 und 3** und eine **Pause von 0 bis 2000 ms**. Der Wert wird nach jeder gültigen Änderung automatisch beim Userscript-Manager gesichert (GM_getValue / GM_setValue unter Tampermonkey, GM.getValue / GM.setValue unter Greasemonkey). Die gespeicherten Einstellungen überstehen einen Reload, einen Tab-/Browserneustart und weitere Exporte.
+
+Die Einstellung enthält **nur** Preset-Name, Custom-Turns und Custom-Delay. Keine Chat-IDs, URLs, Tokens oder Inhalte werden darin abgelegt. Ungültige oder beschädigte gespeicherte Einstellungen fallen auf den empfohlenen Standard zurück. Kann nicht gespeichert werden, erscheint ein Warnhinweis; der gewählte Wert bleibt dann nur für die aktuelle Seite verfügbar.
+
+Ein laufender Export sperrt die Auswahl. Eine Änderung der Konfiguration startet beim nächsten Export eine neue API-Session und verwirft die bisherige rein tab-lokale Paginierung. Ohne Änderung bleiben Wiederaufnahme und erneuter ZIP-Download im selben Tab möglich. Für echte erneute Performance-Messungen weiterhin den Tab neu laden, damit nicht ein bereits vollständig geladener Export archiviert wird.
+
+### Manueller Smoke-Test der Persistenz
+
+- [ ] In Tampermonkey Version 0.1.12 bestätigen; ChatGPT-Tab neu laden.
+- [ ] **Mode → Custom** einstellen, z.B. **Turns 2** und **Delay 400 ms**.
+- [ ] ChatGPT-Tab mit F5 neu laden; **Mode** erneut öffnen: Custom / 2 / 400 muss weiterhin ausgewählt sein.
+- [ ] Auf **Recommended (3 / 100)** umschalten und erneut F5 drücken: Recommended muss weiterhin ausgewählt sein.
+- [ ] Während eines aktiven Exports muss die Konfiguration deaktiviert sein; der Dots-Spinner im Hauptbutton bleibt sichtbar.
+- [ ] Ungültige Zahlen wie Turns 4 oder Delay -1 dürfen nicht übernommen werden.
