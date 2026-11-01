@@ -1,25 +1,25 @@
 # ChatGPT Conversation Exporter
 
-Ein eigenständiges **Greasemonkey-Userscript** zum lokalen JSON-Export **einer einzelnen, aktuell geöffneten Original-ChatGPT-Unterhaltung**. Kein Gesamtexport des Kontos und kein automatischer Export bei jedem Seitenaufruf.
+Ein eigenständiges **Greasemonkey-/Tampermonkey-Userscript** zum lokalen JSON-Export **einer einzelnen, aktuell geöffneten Original-ChatGPT-Unterhaltung**. Kein Gesamtexport des Kontos und kein automatischer Export bei jedem Seitenaufruf.
 
-> **Status: Entwicklungsfassung 0.1.0 auf Feature-Branch.** Die zugrundeliegende Browser-Konsolen-Version wurde praktisch bestätigt. Die Greasemonkey-Variante benötigt noch einen realen Firefox-/Greasemonkey-Smoke-Test, bevor sie als Release gelten kann.
+> **Status: Entwicklungsfassung 0.1.1 auf Feature-Branch.** Die zugrundeliegende Browser-Konsolen-Version wurde praktisch bestätigt. Die Greasemonkey-/Tampermonkey-Variante benötigt noch einen realen Firefox-Smoke-Test, bevor sie als Release gelten kann.
 
 ## Installation und Bedienung
 
-1. Für Firefox **Greasemonkey 4.11+** installieren.
-2. Die Datei [`userscripts/chatgpt-conversation-export.user.js`](userscripts/chatgpt-conversation-export.user.js) aus diesem Branch in Greasemonkey installieren bzw. als neues Userscript in dessen Editor übernehmen und speichern. Keine manuelle URL-Konfiguration notwendig.
-3. Auf `https://chatgpt.com` anmelden und **einen Original-Chat** öffnen: `/c/<uuid>` oder `/g/.../c/<uuid>`.
-4. Im Greasemonkey-Menü den Befehl **„Aktuellen Chat als JSON exportieren“** auswählen.
-5. Ein kleines Statusfenster zeigt den Abruf an. **Abbrechen** unterbricht die laufende Anfrage, die geladenen Seiten bleiben während der aktuellen Browser-Tab-Sitzung im Speicher. Zum **Fortsetzen denselben Menüpunkt erneut auswählen**.
+1. Für Firefox **Tampermonkey** (oder Greasemonkey 4.11+) installieren.
+2. Die Datei [`userscripts/chatgpt-conversation-export.user.js`](userscripts/chatgpt-conversation-export.user.js) aus diesem Branch installieren. [Direktlink zur Raw-Datei](https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/refs/heads/feat/greasemonkey-single-conversation-export/userscripts/chatgpt-conversation-export.user.js). Für bereits installierte Version 0.1.0: **auf 0.1.1 aktualisieren bzw. die alte Installation ersetzen**.
+3. Auf `https://chatgpt.com` anmelden und **einen Original-Chat** öffnen: `/c/<uuid>` oder `/g/.../c/<uuid>`. Nach Installation/Update den Chat-Tab **neu laden**, um das neue Script auszuführen.
+4. Unten links auf der ChatGPT-Seite **„Chat als JSON exportieren“** klicken. Alternativ den Befehl **„Aktuellen Chat als JSON exportieren“** im Userscript-Manager-Menü wählen, falls dieser angeboten wird. Der kleine Pfeil neben dem installierten Script in Tampermonkey öffnet **nur dessen Verwaltungsmenü**, nicht den Export.
+5. Ein Statusfenster zeigt den Abruf an. **Abbrechen** unterbricht die laufende Anfrage; die geladenen Seiten bleiben während der aktuellen Browser-Tab-Sitzung im Speicher. Zum **Fortsetzen den Button bzw. Menüpunkt erneut auswählen**.
 6. Nach bestätigtem Paginierungsende die Datei `chatgpt-conversation-<uuid>.json` im Browser-Downloadverzeichnis kontrollieren.
 
-**Achtung bei privatem Repository:** Eine direkte GitHub-Raw-Installation und automatische Updates sind möglicherweise nicht verfügbar. Daher vorerst per Greasemonkey-Editor installieren; es sind bewusst keine `@downloadURL`/`@updateURL`-Angaben gesetzt.
+Das Repository ist inzwischen **öffentlich**. Die automatische Aktualisierung über `@downloadURL`/`@updateURL` ist bis zur ersten stabilen Version noch nicht konfiguriert; aktualisiere die Entwicklungsfassung bei Bedarf über den Raw-Link.
 
 Ausführliche Hinweise: [Installation / manueller Smoke-Test](docs/installation-and-validation.md).
 
 ## Eigenschaften
 
-- Menüeintrag statt automatischem Export, ohne den Chat-Titel zu benötigen
+- Tampermonkey-/Greasemonkey-Menüeintrag **und** sichtbarer Export-Button unten links statt automatischem Export, ohne den Chat-Titel zu benötigen
 - Automatische Ermittlung der aktuellen Chat-URL im **Moment des Klicks**
 - Authentifizierter Abruf über die bestehende ChatGPT-Sitzung
 - Cursor-Paginierung mit `num_turns=1`, `include_has_versions=true`, `before=start_cursor`
@@ -37,7 +37,7 @@ npm run build
 npm run check
 ```
 
-Die **Quellen** liegen in `src/exporter-core.js` (testbare API-/Paginierungslogik) und `src/userscript-entry.js` (Greasemonkey-Menü, Statusfenster, Download). `scripts/build-userscript.js` generiert daraus deterministisch `userscripts/chatgpt-conversation-export.user.js`. Bitte **nicht nur die generierte Datei** bearbeiten. Die CI überprüft Syntax, Bundle-Gleichheit und Node-basierte Tests und vermeidet Push+PR-Doppelruns: Push nur auf `main`, PR auf Feature-Branches. Reine Dokumentationsänderungen lösen keine CI aus.
+Die **Quellen** liegen in `src/exporter-core.js` (testbare API-/Paginierungslogik) und `src/userscript-entry.js` (Userscript-Manager-Menü, Export-Button, Statusfenster, Download). `scripts/build-userscript.js` generiert daraus deterministisch `userscripts/chatgpt-conversation-export.user.js`. Bitte **nicht nur die generierte Datei** bearbeiten. Die CI überprüft Syntax, Bundle-Gleichheit und Node-basierte Tests und vermeidet Push+PR-Doppelruns: Push nur auf `main`, PR auf Feature-Branches. Reine Dokumentationsänderungen lösen keine CI aus.
 
 Architektur und Grenzen: [Technische Dokumentation](docs/architecture-and-limitations.md).
 
