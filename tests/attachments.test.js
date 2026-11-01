@@ -56,7 +56,7 @@ test("downloads a file reference through same-origin signed URL and returns mani
     const bytes = new TextEncoder().encode("binary payload");
     const fetchImpl = async (url, options) => {
         calls.push({ url, options });
-        if (String(url).startsWith("/backend-api/files/download/")) {
+        if (/^\/backend-api\/files\/file_[^/]+\/download$/.test(String(url))) {
             return { ok: true, json: async () => ({
                 download_url: "https://chatgpt.com/backend-api/estuary/content?sig=SECRET",
                 file_name: "/unsafe/path/uploaded.bin"
