@@ -1,6 +1,6 @@
 # Performance baseline: paginated export (2026-11-01)
 
-This document records **aggregate-only** measurements from a user-supplied, completed **0.1.2** performance report. The original report, conversation URL, IDs, and message content are **not stored** in this repository.
+This document preserves **aggregate-only historical measurements**, starting with a completed **0.1.2** performance report and extending through same-conversation tests. Older proposals below are labeled historical; the current interpretation is at the end. The original report, conversation URL, IDs, and message content are **not stored** in this repository.
 
 ## Measurements
 
@@ -30,7 +30,7 @@ The report includes **two session-authentication requests** (133 ms and 116 ms).
 - **21 of 44 pages contain just one message record**. Their summed header-wait time is **15,994 ms**. This could reflect the API's turn-/message-boundary semantics, rather than a client defect. `num_turns=1` limits logical turns, not technical message count.
 - Successful completion and **zero retries** on this one run do not prove that higher request rates or larger page sizes are always safe.
 
-## Suggested controlled performance experiments
+## Originally suggested controlled experiments (v0.1.2)
 
 Keep the current proven `num_turns=1` and 250-ms pacing as the **reference baseline**. Implement experiments separately (preferably opt-in), using the **same conversation** when possible:
 
@@ -43,7 +43,7 @@ Do not introduce optimization into the stable export path without A/B evidence. 
 
 ## Related UX fix
 
-Starting in **0.1.4**, **Cancel** is visibly greyed out and natively disabled when no export is running (initial/finished/cancelled/error) and returns to its active appearance only during a running export. A UI regression test exercises both states.
+In **v0.1.4** Cancel was greyed out while idle. **This has since changed:** the current UI hides Cancel outside active exports, showing **Save performance report** after completion, cancellation or error.
 
 
 ## Second baseline: user's completed v0.1.7 export
@@ -70,13 +70,13 @@ A new user-supplied **0.1.7** performance report was analyzed on **2026-11-01**.
 
 The measured HTTP header wait is **88.4%** of active runtime. With the previous sequential 250-ms interval, nominal pacing is **57 × 250 ms = 14,250 ms**, about **10.2%** of runtime. 28 single-record pages consume about **44.8 s**, which motivates testing larger `num_turns`. The large initial API responses occasionally cost 4–6 seconds apiece; larger requests may instead be slower or hit timeouts.
 
-### Experimental optimization introduced in v0.1.9 (feature branch only)
+### Experimental optimization introduced in v0.1.9 (historical)
 
-The **userscript** now requests `num_turns=2` and waits **100 ms** between nonterminal pages. The **core library's default remains the proven** `num_turns=1` / **250 ms**, which keeps the reference mode available to tests and integrations. After **two consecutive retryable 5xx/network errors** during a page fetch in two-turn mode, it automatically degrades to `num_turns=1` (and keeps that setting throughout the session/resume); 429 alone does **not** trigger a page-size downgrade. All cursor, pagination, deduplication, abort and resume validation is still used.
+In **v0.1.9**, the **userscript** began requesting `num_turns=2` and waits **100 ms** between nonterminal pages. The **core library's default remains the proven** `num_turns=1` / **250 ms**, which keeps the reference mode available to tests and integrations. After **two consecutive retryable 5xx/network errors** during a page fetch in two-turn mode, it automatically degrades to `num_turns=1` (and keeps that setting throughout the session/resume); 429 alone does **not** trigger a page-size downgrade. All cursor, pagination, deduplication, abort and resume validation is still used.
 
 If the number of pages did not change, reduced pacing could save roughly **8.55 seconds** for the 58-page baseline. More significant gains depend on whether two-turn requests actually reduce the number of pages **without hitting backend timeouts**; this is an *unmeasured hypothesis*, not an achieved speedup.
 
-The performance report now tracks **`requests[*].num_turns`**, **`pages[*].num_turns`**, and **`summary.requests_by_num_turns`**. These are numeric public tuning settings, not URLs, credentials, cursors or message IDs. A new report of the **same conversation**, after installing v0.1.9, is needed to validate any speedup and compare record counts, `pagination_verified`, retries and transfer sizes. One export alone does not establish general performance or safety.
+The performance report now tracks **`requests[*].num_turns`**, **`pages[*].num_turns`**, and **`summary.requests_by_num_turns`**. These are numeric public tuning settings, not URLs, credentials, cursors or message IDs. This was the experiment plan at the time. Same-conversation benchmarks and later full-message comparisons have now been conducted, as described below. One export alone does not establish general reliability.
 
 A completed export re-run after **Close** now initializes the new UI state before opening the panel; regression tests ensure no stale grey Cancel remains visible after completion.
 
@@ -114,13 +114,46 @@ Of the **144.494 s** saved in this one paired test, **120.702 s (83.5% of saving
 
 **Two variables were changed together**, page size and pacing. This one before/after comparison therefore cannot isolate their causal contributions, nor rule out backend load variation. A per-request P50 increase is expected when each request asks for more turns and does not contradict a lower total runtime.
 
-**Result:** The improvement is **observed**, not merely projected. The two-turn mode is promising enough to continue testing, but it is still experimental pending repeated runs across multiple conversations, strict local content/ID comparisons, and robustness tests for oversized pages and 429/5xx responses.
+**Result at the time:** The improvement was **observed**, not merely projected. Later local message comparisons resolved the content-equivalence question for the tested conversation; cross-conversation reliability remains unproven.
 
-### Next controlled experiments
+### Next experiments proposed at the time
 
 1. Hold \`num_turns=2\` and compare **100-ms vs 250-ms** pacing with **the same chat**, to isolate request spacing.
 2. Hold pacing at 100 ms and compare **\`num_turns=2\` versus 3** only as an opt-in experiment with current retry/fallback protection, timeouts and complete-export verification.
 3. Add duration metrics for **actual inter-page sleeping** and **final JSON assembly**, to explain currently unattributed runtime.
 4. Prefer local, privacy-preserving equality checks of **message IDs and canonicalized contents** between the two complete exports before designating a faster setting as a new default.
 
-The original \`num_turns=1\` / 250-ms core defaults remain a conservative reference, and \`main\` must not be changed by these experiments.
+The standalone core API retains **1 turn / 250 ms** as its conservative defaults. The userscript UI later adopted **3 turns / 100 ms** based on measured same-chat performance and integrity checks.
+
+
+## Subsequent same-conversation tests (v0.1.11) and verified integrity
+
+Three completed **v0.1.11** reports for the **same 5,329-record conversation** compared the following configurations. Only aggregate measurements are included; the raw reports and conversation data are not committed.
+
+| Metric | Fast (2 turns / 100 ms) | Pacing (2 / 250) | Experimental (3 / 100) |
+| --- | ---: | ---: | ---: |
+| Active export time | 204,188 ms | 197,988 ms | **158,821 ms** |
+| Completed API pages | 28 | 28 | **19** |
+| Message records | 5,329 | 5,329 | 5,329 |
+| Retry attempts / HTTP errors | 0 / 0 | 0 / 0 | 0 / 0 |
+| HTTP header wait (approximately) | 184.38 s | 184.25 s | **150.16 s** |
+
+At a fixed 100-ms delay, **3 turns** completed **22.2% faster** than the v0.1.11 Fast run, using **32% fewer page requests** (19 vs 28). It was **39.2 seconds** faster than the 2-turn / 250-ms run. The original 1-turn / 250-ms v0.1.7 baseline was **330.084 seconds**; the best measured 3-turn run of **158.821 seconds** represents approximately **51.9% less active time**.
+
+The 2-turn run with 250-ms pacing happened to finish faster than the 100-ms run, despite almost identical HTTP header-wait totals. The slower Fast run included roughly 10 seconds of unattributed active time, so this **does not establish** that a 250-ms delay is intrinsically faster.
+
+### Local full-message comparison
+
+The user independently ran the offline ZIP comparator on **Fast vs Pacing** and **Fast vs Experimental**. Both returned \`verdict: "identical"\` for **5,329 records**: no duplicate, missing or extra IDs; **zero content differences** between matching IDs; and **identical message order**. The comparison checks canonicalized full message objects, excluding variable export timestamps and page-layout metadata.
+
+These results establish integrity for that particular conversation and parameter choices, **not for every possible conversation**. The private conversation ZIPs were never committed.
+
+### Current behavior (v0.2.3)
+
+The browser UI defaults to **3 turns / 100 ms**. Users can enter **1–1000 turns** and **0–60000 ms**; changes are session-only until explicitly saved, while **Load defaults** applies 3/100 without immediately changing durable preferences. The standalone core retains its conservative **1 turn / 250 ms** defaults.
+
+Higher turn values are an input capability, not proven optimizations. The existing sequential cursor validation, retry, downgrade to one turn on repeated temporary errors, cancellation and resume protections remain in place.
+
+The completion message now rounds the active runtime to **whole seconds** (e.g. \`2m 23s\`), while \`summary.active_run_ms\` retains millisecond precision. The progress message no longer includes "checking for older pages", which had merely described ordinary backward pagination.
+
+There were no additional repeated multi-chat benchmarks after the three-mode content-equality verification; do not extrapolate these individual results into a general performance guarantee.
