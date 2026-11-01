@@ -451,7 +451,7 @@ test("Cancel is replaced by Save performance report on completion", async () => 
 
 
 function makeExportUiHarness(storage = null, useAsyncStorage = false,
-    browserSession = new Map()) {
+    browserSession = new Map(), clock = performance) {
     const code = fs.readFileSync(path.join(
         __dirname, "../userscripts/chatgpt-conversation-export.user.js"
     ), "utf8");
@@ -522,7 +522,7 @@ function makeExportUiHarness(storage = null, useAsyncStorage = false,
         },
         Blob,
         AbortController,
-        performance,
+        performance: clock,
         setTimeout: cb => setImmediate(cb),
         clearTimeout: clearImmediate,
         console: { info() {}, warn() {} },
@@ -1241,4 +1241,48 @@ test("theme-aware gear has no filled button chrome, keeps keyboard focus and Dot
     assert.match(entry, /setAttribute\("aria-label", settings\.title\)/);
     assert.doesNotMatch(entry, /settings\.textContent = "⚙"/);
     assert.match(entry, /chatgpt-conversation-export-dot-bounce/);
+});
+
+
+test("export completion displays cumulative active duration and both uncompressed and saved sizes", async () => {
+    let currentMs = 0;
+    const ui = makeExportUiHarness(null, false, new Map(),
+        { now: () => currentMs });
+    ui.launcher.listeners.click();
+    await ui.settle();
+    currentMs = 125432;
+    ui.pending[0](ok(page([msg("last")], "end", false)));
+    await ui.settle();
+    await ui.settle();
+    const panel = ui.visiblePanel();
+    assert.ok(panel);
+    assert.equal(panel.status.textContent,
+        "Export complete – JSON download started.");
+    assert.match(panel.progress.textContent,
+        /1 API pages, 1 unique message records;/);
+    assert.match(panel.progress.textContent,
+        /Duration: 2m 5\.4s \(active\)/);
+    assert.match(panel.progress.textContent,
+        /JSON uncompressed: \d+\.\d{2} MiB;/);
+    assert.match(panel.progress.textContent,
+        /JSON \d+\.\d{2} MiB/);
+    assert.match(panel.progress.textContent, /\.json/);
+});
+
+test("profiler completion duration includes resumed active runs but excludes paused time", () => {
+    const { createExportProfiler } = require("../src/profiling.js");
+    let currentMs = 100;
+    const profiler = createExportProfiler({ now: () => currentMs });
+    const first = profiler.runStarted();
+    currentMs += 4500;
+    assert.equal(profiler.activeElapsedMs(first), 4500);
+    profiler.runEnded(first);
+    currentMs += 60000; // user stopped export; do not count wall-clock pause
+    const resumed = profiler.runStarted();
+    currentMs += 65300;
+    assert.equal(profiler.activeElapsedMs(resumed), 69800);
+    // The method is an observation; it does not finalize/double-count.
+    assert.equal(profiler.report().summary.active_run_ms, 4500);
+    profiler.runEnded(resumed);
+    assert.equal(profiler.report().summary.active_run_ms, 69800);
 });
