@@ -437,7 +437,7 @@ test("Cancel is replaced by Save performance report on completion", async () => 
 });
 
 
-function makeExportUiHarness() {
+function makeExportUiHarness(storage = null, useAsyncStorage = false) {
     const code = fs.readFileSync(path.join(
         __dirname, "../userscripts/chatgpt-conversation-export.user.js"
     ), "utf8");
@@ -491,7 +491,7 @@ function makeExportUiHarness() {
         messageRequests++;
         return await new Promise(resolve => { pending.push(resolve); });
     };
-    vm.runInNewContext(code, {
+    const globals = {
         document,
         URL: urls,
         URLSearchParams,
@@ -505,10 +505,30 @@ function makeExportUiHarness() {
         console: { info() {}, warn() {} },
         GM_registerMenuCommand() {},
         fetch: fetchImpl
-    });
+    };
+    if (storage) {
+        const get = (key, defaultValue) =>
+            storage.has(key) ? storage.get(key) : defaultValue;
+        const set = (key, value) =>
+            storage.set(key, JSON.parse(JSON.stringify(value)));
+        if (useAsyncStorage) {
+            globals.GM = {
+                getValue: async (key, defaultValue) => get(key, defaultValue),
+                setValue: async (key, value) => set(key, value)
+            };
+        } else {
+            globals.GM_getValue = get;
+            globals.GM_setValue = set;
+        }
+    }
+    vm.runInNewContext(code, globals);
     const launcher = document.getElementById("chatgpt-conversation-export-launcher");
     const spinner = document.getElementById("chatgpt-conversation-export-spinner");
     const modeSelect = () => document.getElementById("chatgpt-conversation-export-mode");
+    const customTurns = () =>
+        document.getElementById("chatgpt-conversation-export-custom-turns");
+    const customDelay = () =>
+        document.getElementById("chatgpt-conversation-export-custom-delay");
     const findButton = name => elements.filter(e =>
         e.tagName === "button" && e.textContent === name && e.isConnected
     ).at(-1);
@@ -517,7 +537,8 @@ function makeExportUiHarness() {
     ) ?? null;
     const settle = () => new Promise(resolve => setImmediate(resolve));
     return {
-        launcher, spinner, pending, findButton, modeSelect, visiblePanel, settle,
+        launcher, spinner, pending, findButton, modeSelect, customTurns,
+        customDelay, visiblePanel, settle,
         get messageRequests() { return messageRequests; }
     };
 }
@@ -949,7 +970,7 @@ test("performance diagnostics track batch sizes and pacing without retaining any
 });
 
 
-test("benchmark selector defaults to Fast and exposes reference, pacing and 3-turn experiments", async () => {
+test("benchmark selector defaults to Recommended and exposes reference, pacing and custom controls", async () => {
     const ui = makeExportUiHarness();
     const button = ui.findButton("Mode");
     assert.ok(button);
@@ -957,9 +978,9 @@ test("benchmark selector defaults to Fast and exposes reference, pacing and 3-tu
     button.listeners.click();
     const select = ui.modeSelect();
     assert.ok(select);
-    assert.equal(select.value, "fast");
+    assert.equal(select.value, "experimental");
     assert.deepEqual(Array.from(select.children, option => option.value),
-        ["stable", "pace", "fast", "experimental"]);
+        ["stable", "pace", "fast", "experimental", "custom"]);
     assert.equal(select.disabled, false);
     button.listeners.click();
     assert.equal(ui.modeSelect(), null);
@@ -1026,4 +1047,123 @@ test("Dots animation is local CSS with reduced-motion fallback, no rotating ring
     assert.match(entry, /animation: none !important/);
     assert.match(entry, /index \* 150 \+ "ms"/);
     assert.doesNotMatch(entry, /chatgpt-conversation-export-spin[ "]|rotate\(360deg\)/);
+});
+
+
+test("Tampermonkey settings survive a fresh script load", async () => {
+    const storage = new Map();
+    const first = makeExportUiHarness(storage);
+    await first.settle();
+    first.findButton("Mode").listeners.click();
+    const firstSelect = first.modeSelect();
+    firstSelect.value = "stable";
+    firstSelect.listeners.change();
+    await first.settle();
+    const stored = storage.get("chatgpt-conversation-exporter.settings.v1");
+    assert.deepEqual(stored, {
+        mode: "stable", customNumTurns: 3, customDelayMs: 100
+    });
+
+    const second = makeExportUiHarness(storage);
+    await second.settle();
+    second.findButton("Mode").listeners.click();
+    assert.equal(second.modeSelect().value, "stable");
+    second.launcher.listeners.click();
+    await second.settle();
+    assert.equal(second.messageRequests, 1);
+    second.pending[0](ok(page([msg("single")], "end", false)));
+    await second.settle();
+    await second.settle();
+});
+
+test("Greasemonkey asynchronous settings load before starting a request", async () => {
+    const storage = new Map([[
+        "chatgpt-conversation-exporter.settings.v1",
+        { mode: "custom", customNumTurns: 1, customDelayMs: 700 }
+    ]]);
+    const ui = makeExportUiHarness(storage, true);
+    ui.launcher.listeners.click();
+    await ui.settle();
+    assert.equal(ui.messageRequests, 1);
+    ui.findButton("Mode").listeners.click();
+    assert.equal(ui.modeSelect().value, "custom");
+    assert.equal(ui.customTurns().value, "1");
+    assert.equal(ui.customDelay().value, "700");
+    assert.equal(ui.modeSelect().disabled, true);
+    ui.pending[0](ok(page([msg("one")], "last", false)));
+    await ui.settle();
+    await ui.settle();
+});
+
+test("custom settings persist and trigger fresh sessions on change", async () => {
+    const storage = new Map();
+    const ui = makeExportUiHarness(storage);
+    await ui.settle();
+    ui.findButton("Mode").listeners.click();
+    const select = ui.modeSelect();
+    select.value = "custom";
+    select.listeners.change();
+    assert.equal(ui.customTurns().disabled, false);
+    assert.equal(ui.customDelay().disabled, false);
+
+    ui.customTurns().value = "2";
+    ui.customTurns().listeners.change();
+    ui.customDelay().value = "400";
+    ui.customDelay().listeners.change();
+    await ui.settle();
+    assert.deepEqual(storage.get("chatgpt-conversation-exporter.settings.v1"), {
+        mode: "custom", customNumTurns: 2, customDelayMs: 400
+    });
+    ui.launcher.listeners.click();
+    await ui.settle();
+    assert.equal(ui.messageRequests, 1);
+    ui.pending[0](ok(page([msg("one")], "end", false)));
+    await ui.settle();
+    await ui.settle();
+
+    ui.findButton("Mode").listeners.click();
+    ui.customDelay().value = "500";
+    ui.customDelay().listeners.change();
+    ui.launcher.listeners.click();
+    await ui.settle();
+    assert.equal(ui.messageRequests, 2, "numeric change invalidates old API session");
+    ui.pending[1](ok(page([msg("one")], "end", false)));
+    await ui.settle();
+    await ui.settle();
+
+    const reload = makeExportUiHarness(storage);
+    await reload.settle();
+    reload.findButton("Mode").listeners.click();
+    assert.equal(reload.modeSelect().value, "custom");
+    assert.equal(reload.customTurns().value, "2");
+    assert.equal(reload.customDelay().value, "500");
+});
+
+test("invalid custom values and invalid stored settings are rejected safely", async () => {
+    const storage = new Map([[
+        "chatgpt-conversation-exporter.settings.v1",
+        { mode: "custom", customNumTurns: 900, customDelayMs: -9 }
+    ]]);
+    const ui = makeExportUiHarness(storage);
+    await ui.settle();
+    ui.findButton("Mode").listeners.click();
+    assert.equal(ui.modeSelect().value, "experimental");
+    ui.modeSelect().value = "custom";
+    ui.modeSelect().listeners.change();
+    await ui.settle();
+
+    for (const [turns, delay] of [
+        ["0", "100"], ["4", "100"], ["1.5", "100"],
+        ["2", "-1"], ["2", "2001"], ["2", ""]
+    ]) {
+        const current = storage.get("chatgpt-conversation-exporter.settings.v1");
+        ui.customTurns().value = turns;
+        ui.customDelay().value = delay;
+        ui.customDelay().listeners.change();
+        await ui.settle();
+        assert.deepEqual(storage.get("chatgpt-conversation-exporter.settings.v1"),
+            current, "invalid numbers must not persist");
+        assert.equal(ui.customTurns().value, "3");
+        assert.equal(ui.customDelay().value, "100");
+    }
 });
