@@ -2,16 +2,16 @@
 
 A standalone **Tampermonkey/Greasemonkey userscript** that exports **one currently open, original ChatGPT conversation** as JSON. It is not an account-wide export, and it never starts an export automatically on page load.
 
-> **Version 0.2.3.** The exporter and its pagination flow have been used with Firefox and Tampermonkey. Automated tests cover the current implementation; verify new UI styling and browser-specific download behavior in your own browser. The internal ChatGPT API is undocumented and may change without notice.
+> **Version 0.3.0-beta.1 (attachment experiment, feature branch only).** The exporter and its pagination flow have been used with Firefox and Tampermonkey. Automated tests cover the current implementation; verify new UI styling and browser-specific download behavior in your own browser. The internal ChatGPT API is undocumented and may change without notice.
 
 ## Install and use
 
 1. Install **Tampermonkey** (recommended) or **Greasemonkey 4.11+** in Firefox.
-2. [Install the userscript from `main`](https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/main/userscripts/chatgpt-conversation-export.user.js), or open [the generated userscript](userscripts/chatgpt-conversation-export.user.js) and install it through your userscript manager. **Update/replace** an earlier installation; do not enable duplicate copies.
+2. [Install the experimental userscript from the feature branch](https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/refs/heads/feat/optional-conversation-attachments/userscripts/chatgpt-conversation-export.user.js), or open [the generated userscript](userscripts/chatgpt-conversation-export.user.js) and install it through your userscript manager. **Update/replace** an earlier installation; do not enable duplicate copies.
 3. Sign in at [chatgpt.com](https://chatgpt.com) and open an **original conversation** with a URL such as `/c/<uuid>` or `/g/.../c/<uuid>`. Reload the tab after installation or update.
 4. Click the compact **Export chat as JSON** button at the bottom right. The transparent gear immediately to its right opens **Export performance**, containing only **Turns** and **Delay**. Defaults are **3 turns / 100 ms**.
 5. The progress panel shows counts of **API pages** and **message records**. **Cancel** stops the active run; clicking Export again resumes validated pages in the same tab. **Close** dismisses only the panel, **not** the export; animated **Dots** in the launcher remain visible while the export runs. Click the launcher again to reopen the panel without starting a duplicate request.
-6. After the API confirms the end of pagination, the browser downloads a ZIP containing one JSON file. If ZIP compression is unavailable, the exporter explicitly downloads the original uncompressed `.json` instead. Check the downloaded file.
+6. After the API confirms the end of pagination, the browser downloads a ZIP containing the conversation JSON (and, optionally, attachments and a manifest when enabled). If ZIP compression is unavailable, the exporter explicitly downloads the original uncompressed `.json` instead. Check the downloaded file.
 
 An optional userscript-manager menu action, **Export current chat as JSON**, starts the same operation where supported.
 
@@ -48,6 +48,38 @@ Changing a valid value updates the **next** export immediately, but is **session
 
 To measure a fresh HTTP export with the *same* settings, **reload the ChatGPT tab** first. Otherwise a completed in-memory session can generate another ZIP without fetching messages again.
 
+## Experimental optional attachment export (v0.3.0-beta.1)
+
+The regular conversation export is **unchanged when the option is disabled**. In **Export performance**, enable **Include attachments (experimental)** to attempt downloading files referenced by the exported conversation. It is **off by default**. Like Turns and Delay, the option is session-only until **Save** is clicked; **Load defaults** turns it off.
+
+When enabled, the ZIP will contain:
+
+\`\`\`text
+chatgpt-conversation-<id>.json
+attachments-manifest.json
+attachments/001-example.pdf
+attachments/002-generated-report.xlsx
+\`\`\`
+
+The entries under \`attachments/\` are only present for files that actually download. The manifest lists each discovered file, its originating message ID/role, attempted download result, archive path and size. It records a reason for missing or unsupported downloads. Signed download URLs and session tokens are **never** included in the manifest.
+
+**Supported discovery (best effort):**
+
+- File IDs in structured message attachments, image asset pointers and other file metadata, resolved via an undocumented ChatGPT file-download endpoint.
+- Assistant-authored \`sandbox:/mnt/data/...\` links and structured sandbox paths, resolved via an undocumented interpreter download endpoint.
+
+**Not guaranteed:** every generated image, linked file, Project/Library file, deleted/expired file, externally hosted attachment or agent output. The exporter cannot reconstruct a binary just from a filename or sandbox link. External signed download URLs are **not followed** in this initial version: only \`https://chatgpt.com/backend-api/...\` is permitted. Unsupported or expired references are recorded as failures rather than silently omitted.
+
+**Safety limits:** maximum 100 distinct references attempted, 50 MiB per file and 200 MiB combined downloaded attachment data. This protects browser memory; skipped references are reported. Downloads are sequential and cancelable. Archive entries are sanitized and numbered to prevent path traversal and name collisions.
+
+The attachment-enabled path creates a **multi-entry ZIP** even when native DEFLATE is not available (using uncompressed ZIP entries as needed). If experimental packaging itself fails, it falls back to the original conversation-only ZIP/JSON path with an explicit warning. The ordinary JSON document is preserved; when attachment retrieval is attempted, its \`local_export_audit.attachments_fetched_separately\` flag is set to \`true\`.
+
+Example completion suffix: \`Attachments: 2/3 downloaded | Some attachments were unavailable or skipped; see attachments-manifest.json.\` (the manifest explains the individual results).
+
+**Privacy:** The manifest and original conversation JSON contain identifiers and potentially sensitive file names. Do not upload archives or manifests publicly without reviewing them.
+
+**Validation required:** This is an experimental implementation backed by synthetic API-response tests. The actual ChatGPT download endpoints and user/agent file variants must still be tested in Firefox/Tampermonkey before a stable release. See the [attachment smoke-test checklist](docs/installation-and-validation.md).
+
 ## Local, privacy-preserving content comparison
 
 The performance report records counts and timings, **not message content or IDs**. For a stronger correctness check, use the local comparison CLI with **Node.js 22+**:
@@ -56,7 +88,7 @@ The performance report records counts and timings, **not message content or IDs*
 node .\scripts\compare-exports.js "C:\path\baseline.zip" "C:\path\candidate.zip"
 ```
 
-The comparator accepts `.zip` and `.json`, verifies ZIP CRC32, and compares message IDs, **complete canonicalized message objects**, and their order. It intentionally disregards page-layout metadata and export timestamps. It does **not** upload, log, or print message IDs or contents. Exit codes: `0` identical; `1` different; `2` input/format error.
+The comparator accepts `.zip` (including multi-file attachment archives) and `.json`, verifies the conversation JSON's ZIP CRC32, and compares message IDs, **complete canonicalized message objects**, and their order. It intentionally disregards page-layout metadata and export timestamps. It does **not** upload, log, or print message IDs or contents. Exit codes: `0` identical; `1` different; `2` input/format error.
 
 For the measured 5,329-record conversation, the user independently confirmed **identical IDs, full message objects, and order** across **Fast (2 turns / 100 ms)**, **Pacing (2 / 250)**, and **Experimental (3 / 100)** exports. These results support the current **3 / 100** default; they do not prove optimal behavior on every conversation.
 
@@ -82,7 +114,7 @@ npm run build
 npm run check
 ```
 
-Source modules: `src/exporter-core.js` (pagination/integrity), `src/profiling.js` (content-free metrics), `src/compression.js` (ZIP), `src/userscript-entry.js` (browser UI), and `scripts/compare-exports.js` (offline integrity check).
+Source modules: `src/exporter-core.js` (pagination/integrity), `src/profiling.js` (content-free metrics), `src/compression.js` (ZIP), `src/attachments.js` (experimental discovery and downloads), `src/userscript-entry.js` (browser UI), and `scripts/compare-exports.js` (offline integrity check).
 
 `scripts/build-userscript.js` deterministically produces `userscripts/chatgpt-conversation-export.user.js`. **Edit the sources and rebuild; do not edit only the generated bundle.** GitHub Actions checks JavaScript syntax, generated-bundle equality, and Node tests. CI uses pull-request events for feature branches and push events for `main`; documentation-only changes do not trigger a build.
 
