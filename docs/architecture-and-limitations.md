@@ -110,13 +110,15 @@ This is an **illustrative schema**, not a realistic completed export. `page_meta
 
 `pagination_verified: true` means **the backend reported the end of the fetched older-page chain**. It does not prove that all historical versions, alternative branches, or external attachments were captured. `attachments_fetched_separately` is always `false`.
 
-## Optional attachments (experimental v0.3.0-beta.2)
+## Optional attachments (experimental v0.3.0-beta.3)
 
 The attachment selection is rendered as a **custom 18×18 pixel visual checkbox** using a native `button` with `role="checkbox"`, a dynamic `aria-checked` attribute and a hand-drawn SVG tick. No browser-native checkbox appearance is used, avoiding style resets by ChatGPT's global CSS. Tab and Space/Enter retain keyboard accessibility.
 
 `src/attachments.js` implements **best-effort** file discovery and retrieval *after* a validated conversation export. It is deliberately separate from the original pagination core. The feature is disabled by default and is included in the existing session-only settings / explicit **Save** model.
 
 The discovery pass scans attachment metadata, structured image/file asset pointers, and assistant-generated Markdown `sandbox:/mnt/data/...` links. It deduplicates file IDs across messages and preserves originating message references in a **private** manifest.
+
+**Beta.3 resolver update:** A `file_...` pointer can be backed by different storage systems. The module now retains the structured `asset_pointer` source (`sediment`, `file-service`, or plain metadata), selects its matching resolver first, and tries the other known same-origin metadata routes only after **404/410**. A **401/403** stops further probing. The module obtains the current `/api/auth/session` Bearer token for same-origin metadata and binary requests (cookies remain included). Tokens and signed URLs are never placed in the manifest. Each file's manifest record names attempted resolver categories (`resolver_routes_tried`) and the successful category (`resolved_by`), if any. This improves diagnosis but cannot ensure access to deleted or restricted files.
 
 Download resolution is split by reference type:
 
