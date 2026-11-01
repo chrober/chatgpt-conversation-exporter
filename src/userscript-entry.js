@@ -500,6 +500,16 @@
         };
     }
 
+    function formatDuration(milliseconds) {
+        const tenths = Math.max(0, Math.round(milliseconds / 100));
+        const hours = Math.floor(tenths / 36000);
+        const minutes = Math.floor(tenths / 600) % 60;
+        const seconds = ((tenths % 600) / 10).toFixed(1);
+        if (hours) return hours + "h " + minutes + "m " + seconds + "s";
+        if (minutes) return minutes + "m " + seconds + "s";
+        return seconds + "s";
+    }
+
     function downloadProfile(profile) {
         // Profiling JSON contains only counters and timings, never raw messages.
         const blob = new Blob([JSON.stringify(profile, null, 2)], {
@@ -598,12 +608,22 @@
 
             const result = await download(output, signal);
             state.profiler.noteDownload(result);
+            // The same active-time basis as summary.active_run_ms, including
+            // previous resumed runs but excluding time spent paused.
+            const activeDuration = formatDuration(
+                state.profiler.activeElapsedMs(runStarted)
+            );
+            const jsonSizeMiB = (result.json_bytes / 1048576).toFixed(2);
+            const downloadedSize = result.format.toUpperCase() +
+                " " + result.sizeMiB + " MiB";
             report(
                 "Export complete – " + result.format.toUpperCase() +
                     " download started.",
                 output.local_export_audit.pages_loaded + " API pages, " +
                 output.local_export_audit.unique_records + " unique message records; " +
-                result.sizeMiB + " MiB – " + result.fileName +
+                "Duration: " + activeDuration + " (active); " +
+                "JSON uncompressed: " + jsonSizeMiB + " MiB; " +
+                downloadedSize + " – " + result.fileName +
                 (result.warning ? " | " + result.warning : "")
             );
         } catch (error) {
