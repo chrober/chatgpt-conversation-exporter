@@ -29,6 +29,10 @@ function createExportProfiler(options = {}) {
     function instrumentFetch(fetchImpl, getPageNumber) {
         return async (url, options) => {
             const isAuth = url === "/api/auth/session";
+            // Only record public tuning parameters; never retain the URL,
+            // conversation ID or the secret pagination cursor.
+            const turnsMatch = isAuth ? null : /(?:[?&])num_turns=(\d+)/.exec(url);
+            const numTurns = turnsMatch ? Number(turnsMatch[1]) : null;
             const apiPage = isAuth ? 0 : getPageNumber();
             const attempt = isAuth ? 1 :
                 requests.filter(item =>
@@ -39,6 +43,7 @@ function createExportProfiler(options = {}) {
                 kind: isAuth ? "session" : "messages",
                 api_page: apiPage,
                 attempt,
+                num_turns: numTurns,
                 status: null,
                 outcome: null,
                 fetch_ms: null,
@@ -94,7 +99,8 @@ function createExportProfiler(options = {}) {
             cumulative_records: snapshot.records,
             http_attempts: attempts.length,
             fetch_ms: total(attempts, "fetch_ms"),
-            json_parse_ms: total(attempts, "parse_ms")
+            json_parse_ms: total(attempts, "parse_ms"),
+            num_turns: attempts.at(-1)?.num_turns ?? null
         });
         lastRecords = snapshot.records;
     }
@@ -134,7 +140,7 @@ function createExportProfiler(options = {}) {
         const recordCount = pages.at(-1)?.cumulative_records ?? 0;
         return {
             profile_format: "chatgpt-export-performance-v1",
-            userscript_version: "0.1.8",
+            userscript_version: "0.1.9",
             created_at: startedAt,
             reported_at: new Date().toISOString(),
             completed,
@@ -146,12 +152,18 @@ function createExportProfiler(options = {}) {
                 "HTTP Content-Length may refer to compressed transfer data and may be absent.",
                 "active_run_ms includes network, throttling, retries and processing, but excludes pauses between resumed runs.",
                 "Only completed API pages appear under pages. Failed attempts remain under requests.",
+                "num_turns records the numeric request batch setting; larger batches automatically fall back to 1 after repeated transient backend failures.",
                 "ZIP compression uses browser-native DEFLATE; archive_bytes measures the local ZIP output, not the original JSON size."
             ],
             summary: {
                 api_pages_completed: pages.length,
                 message_records: recordCount,
                 message_http_attempts: messageRequests.length,
+                requests_by_num_turns: messageRequests.reduce((counts, item) => {
+                    const key = String(item.num_turns ?? "unknown");
+                    counts[key] = (counts[key] || 0) + 1;
+                    return counts;
+                }, {}),
                 retries: messageRequests.filter(item => item.attempt > 1).length,
                 request_status_counts: httpStatusCounts,
                 network_header_wait_ms: sumFetch,
