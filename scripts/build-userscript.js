@@ -13,7 +13,7 @@ const metadata = [
     "// ==UserScript==",
     "// @name         ChatGPT Conversation Exporter",
     "// @namespace    https://github.com/chrober/chatgpt-conversation-exporter",
-    "// @version      0.1.4",
+    "// @version      0.1.5",
     "// @author       Christoph O'Bermair",
     "// @description  Export the current ChatGPT conversation as JSON.",
     "// @match        https://chatgpt.com/*",
