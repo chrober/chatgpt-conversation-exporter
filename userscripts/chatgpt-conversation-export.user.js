@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Conversation Exporter
 // @namespace    https://github.com/chrober/chatgpt-conversation-exporter
-// @version      0.2.1
+// @version      0.2.2
 // @author       Christoph O'Bermair
 // @description  Export the current ChatGPT conversation as JSON.
 // @match        https://chatgpt.com/*
@@ -421,6 +421,12 @@ function createExportProfiler(options = {}) {
     }
 
     function runStarted() { return now(); }
+    function activeElapsedMs(started) {
+        // Keep the status message and the exported performance report on
+        // the same cumulative active-time basis. While a run is in progress,
+        // include its elapsed time without finalizing it or counting it twice.
+        return ms(activeRunMs + Math.max(0, now() - started));
+    }
     function runEnded(started) {
         activeRunMs += ms(now() - started);
     }
@@ -455,7 +461,7 @@ function createExportProfiler(options = {}) {
         const recordCount = pages.at(-1)?.cumulative_records ?? 0;
         return {
             profile_format: "chatgpt-export-performance-v1",
-            userscript_version: "0.2.1",
+            userscript_version: "0.2.2",
             created_at: startedAt,
             reported_at: new Date().toISOString(),
             completed,
@@ -503,7 +509,7 @@ function createExportProfiler(options = {}) {
     }
 
     return {
-        instrumentFetch, trackPage, runStarted, runEnded,
+        instrumentFetch, trackPage, runStarted, runEnded, activeElapsedMs,
         noteDownload, hasSamples, report
     };
 }
@@ -1165,6 +1171,16 @@ if (typeof module !== "undefined" && module.exports) {
         };
     }
 
+    function formatDuration(milliseconds) {
+        const tenths = Math.max(0, Math.round(milliseconds / 100));
+        const hours = Math.floor(tenths / 36000);
+        const minutes = Math.floor(tenths / 600) % 60;
+        const seconds = ((tenths % 600) / 10).toFixed(1);
+        if (hours) return hours + "h " + minutes + "m " + seconds + "s";
+        if (minutes) return minutes + "m " + seconds + "s";
+        return seconds + "s";
+    }
+
     function downloadProfile(profile) {
         // Profiling JSON contains only counters and timings, never raw messages.
         const blob = new Blob([JSON.stringify(profile, null, 2)], {
@@ -1263,12 +1279,22 @@ if (typeof module !== "undefined" && module.exports) {
 
             const result = await download(output, signal);
             state.profiler.noteDownload(result);
+            // The same active-time basis as summary.active_run_ms, including
+            // previous resumed runs but excluding time spent paused.
+            const activeDuration = formatDuration(
+                state.profiler.activeElapsedMs(runStarted)
+            );
+            const jsonSizeMiB = (result.json_bytes / 1048576).toFixed(2);
+            const downloadedSize = result.format.toUpperCase() +
+                " " + result.sizeMiB + " MiB";
             report(
                 "Export complete – " + result.format.toUpperCase() +
                     " download started.",
                 output.local_export_audit.pages_loaded + " API pages, " +
                 output.local_export_audit.unique_records + " unique message records; " +
-                result.sizeMiB + " MiB – " + result.fileName +
+                "Duration: " + activeDuration + " (active); " +
+                "JSON uncompressed: " + jsonSizeMiB + " MiB; " +
+                downloadedSize + " – " + result.fileName +
                 (result.warning ? " | " + result.warning : "")
             );
         } catch (error) {
