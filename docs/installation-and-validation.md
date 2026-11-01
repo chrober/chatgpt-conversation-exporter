@@ -35,7 +35,7 @@ Die CLI entpackt die eine JSON-Datei aus dem ZIP (CRC32-Prüfung), vergleicht vo
 ## Manuelle Abnahmetests – vor einer Freigabe erforderlich
 
 - [ ] Tampermonkey-/Greasemonkey-Menübefehl erscheint auf dem ChatGPT-Tab (falls vom Manager unterstützt).
-- [ ] Der **„Export chat as JSON“**-Button unten rechts und der kleine **Mode**-Button erscheinen in Firefox, ohne das ChatGPT-Menü zu verdecken.
+- [ ] Der kompakte **„Export chat as JSON“**-Button unten rechts und das **unmittelbar rechts daneben liegende Zahnrad ⚙** erscheinen in Firefox, ohne das ChatGPT-Menü zu verdecken.
 - [ ] Die vier Benchmark-Modi lassen sich vor dem Start auswählen; während eines Exports ist die Auswahl gesperrt.
 - [ ] Nach einem Wechsel des Benchmark-Modus wird der Chat tatsächlich erneut von der API abgefragt, nicht aus dem Cache archiviert.
 - [ ] Die ZIP-Exporte aus 0.1.7 und 0.1.9 lassen sich mit `compare-exports.js` lokal auf gleiche Nachrichten-IDs, Inhalte und Reihenfolge prüfen.
