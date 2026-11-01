@@ -134,11 +134,19 @@ function createExportSession(options) {
         sleep = wait,
         maxPages = 5000,
         maxAttempts = 4,
-        requestDelayMs = 250
+        requestDelayMs = 250,
+        numTurns = 1,
+        fallbackAfterErrors = 2
     } = options;
 
     if (typeof fetchImpl !== "function") {
         throw new Error("fetchImpl is required.");
+    }
+    if (!Number.isInteger(numTurns) || numTurns < 1 || numTurns > 3) {
+        throw new RangeError("numTurns must be an integer between 1 and 3.");
+    }
+    if (!Number.isInteger(requestDelayMs) || requestDelayMs < 0) {
+        throw new RangeError("requestDelayMs must be a nonnegative integer.");
     }
 
     const { conversationId, sourceUrl } = parseConversationUrl(suppliedUrl);
@@ -146,6 +154,10 @@ function createExportSession(options) {
     let nextCursor = null;
     let completed = false;
     let running = false;
+    // The larger batch is experimental. If it repeatedly times out, switch
+    // to the proven 1-turn mode for the remaining pages and any resume.
+    let effectiveNumTurns = numTurns;
+    let fallbackCount = 0;
 
     function snapshot() {
         return {
@@ -154,7 +166,10 @@ function createExportSession(options) {
             pages: pages.length,
             records: pages.reduce((sum, page) => sum + page.messages.length, 0),
             completed,
-            running
+            running,
+            effectiveNumTurns,
+            fallbackCount,
+            requestDelayMs
         };
     }
 
@@ -174,18 +189,18 @@ function createExportSession(options) {
     }
 
     async function requestPage(headers, before, signal) {
-        const params = new URLSearchParams({
-            include_has_versions: "true",
-            num_turns: "1"
-        });
-        if (before) params.set("before", before);
-
-        const endpoint =
-            "/backend-api/conversations/" + conversationId +
-            "/messages?" + params.toString();
-
+        let consecutiveBatchErrors = 0;
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
             assertNotAborted(signal);
+            const params = new URLSearchParams({
+                include_has_versions: "true",
+                num_turns: String(effectiveNumTurns)
+            });
+            if (before) params.set("before", before);
+            const endpoint =
+                "/backend-api/conversations/" + conversationId +
+                "/messages?" + params.toString();
+
             try {
                 const response = await fetchImpl(endpoint, {
                     credentials: "include",
@@ -197,6 +212,8 @@ function createExportSession(options) {
                 if (!response.ok) {
                     const error = new Error("Message request: HTTP " + response.status);
                     error.retryable = TEMPORARY_HTTP_STATUSES.has(response.status);
+                    // 429 is rate limiting, not evidence of an oversized batch.
+                    error.batchFailure = [500, 502, 503, 504].includes(response.status);
                     throw error;
                 }
                 return await response.json();
@@ -205,6 +222,15 @@ function createExportSession(options) {
                 const retryable = error.retryable === true ||
                     error instanceof TypeError;
                 if (!retryable || attempt >= maxAttempts) throw error;
+
+                if (effectiveNumTurns > 1 &&
+                    (error.batchFailure || error instanceof TypeError)) {
+                    consecutiveBatchErrors++;
+                    if (consecutiveBatchErrors >= fallbackAfterErrors) {
+                        effectiveNumTurns = 1;
+                        fallbackCount++;
+                    }
+                }
                 await sleep(1500 * Math.pow(2, attempt - 1), signal);
             }
         }
