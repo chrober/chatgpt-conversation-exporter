@@ -555,6 +555,8 @@ function makeExportUiHarness(storage = null, useAsyncStorage = false,
         document.getElementById("chatgpt-conversation-export-custom-turns");
     const customDelay = () =>
         document.getElementById("chatgpt-conversation-export-custom-delay");
+    const attachmentInput = () =>
+        document.getElementById("chatgpt-conversation-export-include-attachments");
     const findButton = name => elements.filter(e =>
         e.tagName === "button" && e.textContent === name && e.isConnected
     ).at(-1);
@@ -564,7 +566,7 @@ function makeExportUiHarness(storage = null, useAsyncStorage = false,
     const settle = () => new Promise(resolve => setImmediate(resolve));
     return {
         launcher, spinner, pending, findButton, modeButton, toolbar, customTurns,
-        customDelay, visiblePanel, settle, browserSession, messageUrls,
+        customDelay, attachmentInput, visiblePanel, settle, browserSession, messageUrls,
         get messageRequests() { return messageRequests; }
     };
 }
@@ -1073,7 +1075,7 @@ test("session-only edits affect next API request without saving persistently", a
     assert.equal(durable.size, 0, "editing never calls GM_setValue");
     const ephemeral = JSON.parse(session.get(
         "chatgpt-conversation-exporter.session-settings.v2"));
-    assert.deepEqual(ephemeral, { numTurns: 12, delay: 650 });
+    assert.deepEqual(ephemeral, { numTurns: 12, delay: 650, includeAttachments: false });
     ui.launcher.listeners.click();
     await ui.settle();
     assert.match(ui.messageUrls[0], /num_turns=12/);
@@ -1109,7 +1111,7 @@ test("Save commits values to userscript storage for future sessions", async () =
     await ui.settle();
     await ui.settle();
     assert.deepEqual(durable.get("chatgpt-conversation-exporter.settings.v2"),
-        { numTurns: 25, delay: 300 });
+        { numTurns: 25, delay: 300, includeAttachments: false });
     const nextSession = makeExportUiHarness(durable, false, new Map());
     await nextSession.settle();
     nextSession.modeButton().listeners.click();
@@ -1136,7 +1138,7 @@ test("Load defaults changes session only; Save afterward persists defaults", asy
     ui.findButton("Save").listeners.click();
     await ui.settle();
     await ui.settle();
-    assert.deepEqual(durable.get(key), { numTurns: 3, delay: 100 });
+    assert.deepEqual(durable.get(key), { numTurns: 3, delay: 100, includeAttachments: false });
     const freshSession = makeExportUiHarness(durable);
     await freshSession.settle();
     freshSession.modeButton().listeners.click();
@@ -1230,7 +1232,7 @@ test("rapid Greasemonkey Save clicks serialize and persist last values", async (
     await ui.settle();
     await ui.settle();
     assert.deepEqual(durable.get("chatgpt-conversation-exporter.settings.v2"),
-        { numTurns: 5, delay: 100 });
+        { numTurns: 5, delay: 100, includeAttachments: false });
 });
 
 test("export core supports configurable batches higher than three", async () => {
@@ -1313,4 +1315,47 @@ test("duration formatter rounds up across minute and hour boundaries", () => {
     assert.equal(formatDuration(142900), "2m 23s");
     assert.equal(formatDuration(59800), "1m 0s");
     assert.equal(formatDuration(3599600), "1h 0m 0s");
+});
+
+
+test("attachment checkbox is opt-in, session scoped and saved only on explicit Save", async () => {
+    const durable = new Map();
+    const tab = new Map();
+    const ui = makeExportUiHarness(durable, false, tab);
+    await ui.settle();
+    ui.modeButton().listeners.click();
+    const check = ui.attachmentInput();
+    assert.equal(check.checked, false);
+    check.checked = true;
+    check.listeners.change();
+    assert.equal(durable.size, 0);
+    assert.equal(JSON.parse(tab.get(
+        "chatgpt-conversation-exporter.session-settings.v2")).includeAttachments, true);
+    ui.findButton("Save").listeners.click();
+    await ui.settle();
+    await ui.settle();
+    assert.equal(durable.get("chatgpt-conversation-exporter.settings.v2").includeAttachments, true);
+    const reloaded = makeExportUiHarness(durable);
+    await reloaded.settle();
+    reloaded.modeButton().listeners.click();
+    assert.equal(reloaded.attachmentInput().checked, true);
+    reloaded.findButton("Load defaults").listeners.click();
+    assert.equal(reloaded.attachmentInput().checked, false);
+    assert.equal(durable.get("chatgpt-conversation-exporter.settings.v2").includeAttachments, true);
+});
+
+test("attachment controls are disabled while export is active", async () => {
+    const ui = makeExportUiHarness();
+    ui.launcher.listeners.click();
+    await ui.settle();
+    ui.modeButton().listeners.click();
+    const check = ui.attachmentInput();
+    assert.equal(check.disabled, true);
+    check.checked = true;
+    check.listeners.change();
+    assert.equal(check.checked, false);
+    ui.pending[0](ok(page([msg("last")], "end", false)));
+    await ui.settle();
+    await ui.settle();
+    assert.equal(check.disabled, false);
 });
