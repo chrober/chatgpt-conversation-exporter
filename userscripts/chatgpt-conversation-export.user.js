@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Conversation Exporter
 // @namespace    https://github.com/chrober/chatgpt-conversation-exporter
-// @version      0.1.3
+// @version      0.1.4
 // @author       Christoph O'Bermair
 // @description  Export the current ChatGPT conversation as JSON.
 // @match        https://chatgpt.com/*
@@ -407,7 +407,7 @@ function createExportProfiler(options = {}) {
         const recordCount = pages.at(-1)?.cumulative_records ?? 0;
         return {
             profile_format: "chatgpt-export-performance-v1",
-            userscript_version: "0.1.3",
+            userscript_version: "0.1.4",
             created_at: startedAt,
             reported_at: new Date().toISOString(),
             completed,
@@ -465,6 +465,20 @@ if (typeof module !== "undefined" && module.exports) {
 
     function currentUrl() {
         return window.location.origin + window.location.pathname;
+    }
+
+    // The button already used the native disabled attribute; style it too so
+    // the completed (or cancelled) state is visually unmistakable.
+    function setCancelEnabled(button, enabled) {
+        button.disabled = !enabled;
+        button.setAttribute("aria-disabled", String(!enabled));
+        Object.assign(button.style, {
+            background: enabled ? "#354152" : "#414751",
+            borderColor: enabled ? "#8c99a8" : "#5d6470",
+            color: enabled ? "#f6f7f8" : "#a4aab3",
+            cursor: enabled ? "pointer" : "not-allowed",
+            opacity: enabled ? "1" : "0.55"
+        });
     }
 
     function showPanel() {
@@ -542,7 +556,7 @@ if (typeof module !== "undefined" && module.exports) {
             root.remove();
             state.panel = null;
         });
-        cancel.disabled = true;
+        setCancelEnabled(cancel, false);
         saveProfile.disabled = !state.profiler?.hasSamples();
         root.appendChild(actions);
         document.body.appendChild(root);
@@ -626,7 +640,7 @@ if (typeof module !== "undefined" && module.exports) {
         const session = state.session;
         state.controller = new AbortController();
         const signal = state.controller.signal;
-        showPanel().cancel.disabled = false;
+        setCancelEnabled(showPanel().cancel, true);
         const runStarted = state.profiler.runStarted();
 
         try {
@@ -679,7 +693,7 @@ if (typeof module !== "undefined" && module.exports) {
         } finally {
             state.profiler.runEnded(runStarted);
             state.controller = null;
-            if (state.panel) state.panel.cancel.disabled = true;
+            if (state.panel) setCancelEnabled(state.panel.cancel, false);
         }
     }
 
