@@ -1,82 +1,93 @@
-# Architektur, Datenvertrag und Grenzen
+# Architecture, data contract, and limitations
 
-## Ziel
+## Purpose and scope
 
-Ein dediziertes Greasemonkey-/Tampermonkey-Userscript ruft genau den **aktuell geöffneten Original-Chat** über die vorhandene ChatGPT-Browser-Sitzung ab. Das Programm ist **kein** Scraper des sichtbaren DOMs; es verwendet einen internen, undokumentierten Nachrichten-Endpunkt. Die Funktion kann sich durch Backend-Änderungen jederzeit verändern.
+A standalone Tampermonkey/Greasemonkey userscript exports **only the original ChatGPT conversation currently open in the browser**. It accesses the signed-in browser session and an **undocumented internal paginated message endpoint**, not the visible DOM. Neither API stability nor comprehensive historical branch coverage is guaranteed.
 
-## Komponenten
+## Components
 
-- `src/exporter-core.js`: URL-/ID-Prüfung, Sitzungsheader, kleine sequentielle Seitenabfragen, Retries, Validierung, In-Memory-Fortsetzung, Zusammenführung und Audit. Ohne Browser-UI testbar.
-- **Abschlussstatus v0.2.2:** enthält aktive Exportdauer als kompakte Zeitangabe sowie die genaue unkomprimierte JSON-Bytezahl und die tatsächliche Downloadgröße (MiB) für ZIP oder JSON-Fallback. Die Dauer wird aus `activeRunMs + now() - runStarted` ermittelt und schließt bei Resume mehrere aktive Versuche ein, nicht jedoch Pausenzeiten. Kurz nach der Meldung wird die Messung in `finally` abgeschlossen; der separat gespeicherte Performance-Report bleibt maßgebliche feinere Messung.
-- `src/profiling.js`: zeitbasierte Messung von Sitzungs-/Nachrichten-HTTP-Antworten, JSON-Parsing, Seiten-/Retry-Statistik, Export-Serialisierung, ZIP-Komprimierung und separat herunterladbarem redigiertem Diagnosebericht. Keine Rohdaten oder Identifikatoren.
-- `src/compression.js`: ZIP-32-Einzeldateiarchiv mit CRC32/UTF-8 und DEFLATE über `CompressionStream('deflate-raw')`. Fehlende Browserunterstützung oder Komprimierungsfehler führen zum unveränderten `.json`-Fallback; keine Drittanbieterbibliothek.
-- `src/userscript-entry.js`: persistenter UI-Status unabhängig vom DOM-Statusfenster; **Close** entfernt nur das Fenster, nicht den laufenden Export. Die Kontextaktionen sind gegenseitig exklusiv: **Cancel** während eines Exports, danach **Save performance report** (Erfolg, Fehler oder Abbruch); ohne aktiven Exportversuch sind beide verborgen. Fortschritt wird im Speicher weitergeführt, ein erneuter Launcher-Klick bei aktivem Export öffnet das Fenster mit aktivem Cancel, ohne erneut abzurufen. `GM_registerMenuCommand` für Tampermonkey bzw. `GM.registerMenuCommand` für Greasemonkey, zusätzlich ein fester in-Page-Startbutton **unten rechts** mit eigenständigem **Dots-Activity-Indicator** (drei in CSS gestaffelt hüpfende Punkte; statisch bei `prefers-reduced-motion: reduce`), der am aktiven `AbortController`-Lebenszyklus hängt und beim Schließen des Statusfensters sichtbar bleibt, sowie ein darüber platziertes Statusfenster (englische Meldungen), Browser-Kontextprüfung im Klickmoment, Statusfenster, Abbruch über `AbortController`, Blob-/Browser-Download.
-- `scripts/compare-exports.js`: lokales Node.js-CLI zum ZIP-/JSON-Inhaltsvergleich (CRC32; SHA-256 pro Nachricht). Vergleicht Nachrichten-IDs, kanonisierte vollständige Nachrichtenobjekte und Reihenfolge, ohne IDs oder Inhalte auszugeben. Seitenmetadaten und Exportzeitpunkt sind ausgenommen; es erfolgt keinerlei Netzwerkzugriff.
-- **Kompakte Toolbar v0.2.2:** kleiner Export-Button (11 px Schrift, reduziertes Padding), unmittelbar rechts ein **visuell ungestylter, semantisch zugänglicher Button mit originalem achtzähnigem SVG-Gear-Icon**. Das SVG nutzt `fill=currentColor`; die Toolbar nutzt `var(--text-primary, var(--token-text-primary, inherit))`, d. h. dynamische ChatGPT-Textfarbe oder geerbte Textfarbe, keine hartcodierte Light-/Dark-Farbe, kein Button-Hintergrund/Rand/Schatten. `:focus-visible` stellt Tastaturfokus dar. Die Settings-Oberfläche besitzt **kein Preset-Dropdown**, sondern nur die Felder **Turns (1–1000, Standard 3)** und **Delay (0–60000 ms, Standard 100)** mit je einem kurzen Hilfetext.
-- **Zweistufige Speicherung:** Gültige Eingaben aktualisieren die Parameter für den nächsten Export sofort und bleiben via `window.sessionStorage` unter `chatgpt-conversation-exporter.session-settings.v2` tabbezogen erhalten. Erst der explizite **Save**-Button schreibt `{numTurns, delay}` in den dauerhaften Userscript-Manager-Speicher `chatgpt-conversation-exporter.settings.v2`; **Load defaults** setzt 3/100 **nur in der Session**, bis anschließend **Save** angeklickt wird. Alte v0.1.12-Einstellungen unter `settings.v1` werden lesend übernommen. Der Core erzwingt ganzzahlige Eingaben und eine großzügige technische Schutzgrenze von 1000 Turns (nicht empirisch bis dahin validiert). Keine Secrets/Chat-Inhalte gespeichert.
-- Während aktiver Exportarbeit sind Inputs und Einstellungenaktionen gesperrt. Ein anderer Parameterwert erzeugt beim nächsten Start eine frische API-Session; gleichbleibende Werte erlauben weiterhin Resume und ZIP-Re-Download. Die **Dots**-Animation bleibt unverändert.
-- `scripts/build-userscript.js`: deterministische Zusammenführung der Quellen mit Userscript-Metadaten; keine Runtime-CDNs, keine `@require`-Abhängigkeiten.
-- `userscripts/chatgpt-conversation-export.user.js`: **installierbares, generiertes Artefakt**, nicht direkt editieren.
-- `tests/exporter.test.js`: simulierte API-Antworten, keine realen Chat- oder Sitzungsdaten.
+| File | Responsibility |
+| --- | --- |
+| \`src/exporter-core.js\` | Original-conversation URL validation, authenticated pagination, retries, cursor validation, deduplication, in-tab resume and export audit |
+| \`src/profiling.js\` | Privacy-preserving request/page timings, counters and active-run tracking |
+| \`src/compression.js\` | Single-entry ZIP32 output with UTF-8 filename, CRC32 and browser-native DEFLATE; lossless plain-JSON fallback |
+| \`src/userscript-entry.js\` | Tampermonkey/Greasemonkey integration, launcher, gear settings, progress panel, cancellation, downloads |
+| \`scripts/compare-exports.js\` | Offline ZIP/JSON integrity and message equality comparator |
+| \`scripts/build-userscript.js\` | Deterministic assembly of source modules and userscript metadata |
+| \`userscripts/chatgpt-conversation-export.user.js\` | Generated installable bundle; do **not** edit it independently |
+| \`tests/*.test.js\` | Synthetic unit/UI regressions and ZIP verification; no real conversation data |
 
-```mermaid
+The launcher is deliberately small, with an **11-pixel label** and a **transparent, borderless, shadow-free SVG gear** directly to its right. The gear is a semantic button with accessible name and keyboard focus treatment. The eight-tooth icon draws with \`currentColor\`; the toolbar resolves ChatGPT's text color using \`var(--text-primary, var(--token-text-primary, inherit))\`. No separate theme polling or fixed light/dark color is needed.
+
+The animated **Dots** indicator stays tied to the active export controller rather than the dismissible progress panel. Dots become static under \`prefers-reduced-motion: reduce\`. **Close** hides only the panel. Clicking Export during a running export reopens it without starting duplicate HTTP requests. **Cancel** is visible only during execution; **Save performance report** appears after success, failure, or cancellation.
+
+## Pagination flow
+
+\`\`\`mermaid
 flowchart TD
-    A[Greasemonkey-Menübefehl] --> B[Browser-URL und Conversation-ID prüfen]
-    B --> C[Sitzung via /api/auth/session]
-    C --> D[GET /backend-api/conversations/ID/messages]
-    D --> E{has_previous_page?}
-    E -->|true| F[Cursor start_cursor als before]
+    A[User clicks Export] --> B{Original conversation URL?}
+    B -->|No| Z[Show error; do not fetch]
+    B -->|Yes| C[Read browser session]
+    C --> D[Request one messages API page]
+    D --> E{Response valid?}
+    E -->|No, retryable| F[Retry or fall back to one turn]
     F --> D
-    E -->|false| G[Seiten umkehren und IDs deduplizieren]
-    G --> H[Audit und ZIP-Komprimierung]
-    H --> J[ZIP-Download oder JSON-Fallback]
-    D -->|Fehler| I[Retry oder Unterbrechung]
-    I -->|erneuter Menüaufruf| D
-```
+    E -->|Yes| G[Record validated page]
+    G --> H{has_previous_page?}
+    H -->|Yes| I[Use start_cursor as before cursor]
+    I --> D
+    H -->|No| J[Reverse page order and deduplicate IDs]
+    J --> K[Build JSON and pagination audit]
+    K --> L[Create ZIP or plain JSON fallback]
+    L --> M[Download and report completion]
+\`\`\`
 
-## Bedeutung der API-Seiten
+1. Accept \`https://chatgpt.com/c/<uuid>\` and original chats nested beneath \`/g/.../c/<uuid>\`; strip query and fragment. Reject shared links.
+2. Authenticate using the existing browser context: \`GET /api/auth/session\`, \`credentials: include\`; any optional Bearer token remains in memory.
+3. Fetch \`GET /backend-api/conversations/{id}/messages?include_has_versions=true&num_turns=N\`. Page requests are **strictly sequential**, because the cursor for the next request comes from the preceding response.
+4. While \`page_info.has_previous_page === true\`, pass \`page_info.start_cursor\` through \`before=\`. End only when the backend explicitly reports \`has_previous_page === false\`.
+5. Check every page, reject missing/repeated cursors and malformed/empty responses. Identical overlapping message IDs may be deduplicated; conflicting IDs cause an error.
+6. Reverse the **order of API pages**, preserve the order of messages *within* each page, and assemble the export with an audit.
 
-**API pages** sind paginierte Antworten des internen Nachrichten-Endpunkts, **keine** Browserseiten, Chat-Turns oder einzelnen Nachrichten. Eine API-Seite kann sehr viele `message records` enthalten. Die Anzeige verwendet diese beiden Begriffe bewusst getrennt.
+An **API page** is one backend response—not a browser page, logical turn, or single message. The number of technical **message records** returned per page varies and can be large. During retrieval the status simply reads, for example, \`2 API pages, 147 message records\`; the exporter is not running an additional "checking for older pages" operation.
 
-## Performance-Diagnose
+## Performance tuning and persistence
 
-Das Userscript sammelt minimale In-Memory-Messwerte. Der Bericht wird **nicht automatisch gespeichert**; **Save performance report erscheint erst nach Abschluss, Fehler oder Abbruch**, nicht während des Abrufs oder der Komprimierung. Der JSON-Bericht `chatgpt-export-performance-<timestamp>.json` enthält:
+The settings panel contains only:
 
-- `requests`: laufende Nummer der API-Seite, Versuch, HTTP-Status, Header-Wartezeit (`fetch_ms`), Body-/JSON-Parsing-Dauer (`parse_ms`) und gegebenenfalls gemeldete `Content-Length`;
-- `pages`: Datensatzanzahl, kumulierte Datensätze, Anzahl HTTP-Versuche und aufsummierte Zeiten je erfolgreich validierter Seite;
-- `summary`: Seiten-/Datensatzzahlen, Retries, Statusverteilung, Summen, P50/P95 der Header-Wartezeit, aktive Laufzeit über mehrere Versuche und – bei erfolgreichem Abschluss – lokale JSON-Serialisierungsdauer, ZIP-Komprimierungsdauer, Rohgröße, Archivgröße und Kompressionsverhältnis.
+| Parameter | Default | Allowed | Explanation |
+| --- | ---: | ---: | --- |
+| Turns / \`num_turns\` | 3 | 1–1000 integer | Requested logical conversation turns per backend response |
+| Delay / \`requestDelayMs\` | 100 ms | 0–60000 ms integer | Configured delay between nonfinal page requests |
 
-**Nicht enthalten**: Chat-URL, Conversation-ID, Cursor, Sitzungs-/Authorization-Token, Request-Header, Nachrichteninhalte oder IDs. Auch die Diagnose kann anhand von Zeitstempeln und Nutzungsmustern Rückschlüsse erlauben; vor Veröffentlichung prüfen.
+Valid edits apply to **the next export** immediately but are stored initially only in tab \`sessionStorage\` under \`chatgpt-conversation-exporter.session-settings.v2\`. When storage is unavailable, in-memory state remains usable for the current page.
 
-`fetch_ms` misst die Zeit bis zu HTTP-Response-Headern und ist **nicht** identisch mit der vollständigen Netzwerk-/Backend-Dauer. `parse_ms` umfasst das Lesen/Parsen der Antwort. P50/P95 sind Beobachtungswerte ohne statistische Garantie. `active_run_ms` enthält Wartezeiten, aber nicht die Zeit zwischen einem Abbruch und einer manuellen Fortsetzung. Ohne Network-DevTools/Server-Metriken lassen sich z. B. DNS, TLS und serverseitige Berechnungen nicht einzeln isolieren.
+The **Save** button explicitly writes \`{numTurns, delay}\` to the userscript manager under \`chatgpt-conversation-exporter.settings.v2\`, using \`GM_setValue\`/\`GM.setValue\`. **Load defaults** loads **3 / 100** into the current session but does **not** overwrite durable preferences; users may click **Save** afterward. Old v0.1.12 preferences under \`settings.v1\` are read as a migration fallback, without silently writing new preferences.
 
-## ZIP-Komprimierung und Format
+While an export runs, both inputs and buttons are disabled. A real parameter change invalidates the current in-memory pagination session **at the next export start**; unchanged values preserve the session for resume or a repeated ZIP download. Repeating an already completed export with the same parameters does **not** re-fetch HTTP pages; reload the tab before timing a new full run.
 
-Nach verifiziertem Paginierungsende wird **derselbe JSON-Inhalt wie bisher** erzeugt; er wird lediglich vor dem Download in ein ZIP-Archiv mit genau einer `.json`-Datei verpackt. Das Archiv verwendet standardmäßige ZIP-32-Header, Dateinamen in UTF-8, CRC32-Integritätsprüfung, einen zentralen Verzeichniseintrag und DEFLATE-Methode 8. Die komprimierten Bytes liefert die browsernative `CompressionStream('deflate-raw')`-API. Bei fehlender Unterstützung oder Komprimierungsfehlern wird **kein defektes ZIP** geschrieben; stattdessen wird ausdrücklich das ursprüngliche JSON heruntergeladen. ZIP64 (>4 GiB) wird nicht angeboten.
+**Do not interpret the 1000-turn ceiling as a validated optimum.** Successful same-conversation comparisons currently support one-, two-, and three-turn requests. Higher values may increase response latency, memory use, rate limiting or timeout risk.
 
-Die neue Diagnose enthält `summary.zip_compression_ms`, `summary.download_format`, `summary.exported_json_bytes`, `summary.archive_bytes` und `summary.compression_ratio` zusätzlich zu den bisherigen Feldern. Die Berichtserstellung erfolgt weiterhin nur auf Nutzeraktion nach dem Terminalzustand des Exports. Die Komprimierung ist noch **nicht** in einem realen Firefox-/Tampermonkey-Test verifiziert.
+The **core library's own defaults** remain \`numTurns=1\` and \`requestDelayMs=250\`, independent of the UI's current **3 / 100** defaults. Following two consecutive retryable 5xx/network failures for the same page, the exporter switches to \`num_turns=1\` for the remainder of that session. HTTP 429 alone does not trigger this downgrade. Network and HTTP 429/500/502/503/504 failures otherwise use bounded retries (up to four attempts per page).
 
-## Versuch zur Performanceverbesserung (v0.1.10)
+## Completion status and duration
 
-Der im Userscript verwendete Startwert ist nun `num_turns=2` mit `requestDelayMs=100`; die testbare Core-API behält ihre bisherigen Standardwerte `numTurns=1` und `requestDelayMs=250`. Die Requests bleiben **streng sequentiell**, da der Cursor des nächsten Requests erst nach Erhalt der vorherigen Seite bekannt ist. Beim zweiten aufeinanderfolgenden retrybaren 5xx-/Netzwerkfehler derselben Seitenabfrage wird für den Rest der Session automatisch `num_turns=1` verwendet. HTTP 429 allein reduziert die Batchgröße nicht.
+After successful download preparation the progress panel reports the API-page count, unique record count, **active export duration rounded to whole seconds**, **uncompressed UTF-8 JSON bytes converted to MiB**, and **actual downloaded ZIP or JSON bytes converted to MiB**.
 
-Die unveränderte Paginierungs-, Cursor- und Duplicate-Prüfung soll weiterhin vollständige JSON-Exporte gewährleisten. Ein schnellerer Gesamt-Export **muss erst im Firefox an demselben Chat gemessen und anhand der Datensatzanzahl überprüft werden**. Die Diagnose speichert die anonyme `num_turns`-Zahl je Request und die Verteilung im Summary. Ein erneuter Download aus einer bereits abgeschlossenen Browser-Session misst **keinen neuen HTTP-Abruf**; für einen kontrollierten Vergleich vor dem Lauf die Seite neu laden.
+\`\`\`text
+Export complete – ZIP download started.
+26 API pages, 2795 unique message records;
+Duration: 2m 23s (active); JSON uncompressed: 32.85 MiB;
+ZIP 3.56 MiB – chatgpt-conversation-<id>.zip
+\`\`\`
 
-Beim neuen Export nach **Close** wird die Controller-/UI-Phase vor dem Anzeigen des Fensters initialisiert; nach Erfolg/Fehler/Abbruch wird Cancel vollständig ausgeblendet. Regressionstests decken ausdrücklich das Wiederholen eines abgeschlossenen Exports ab.
+The time is taken from the same active-run basis as \`summary.active_run_ms\`: already finished active periods plus the elapsed portion of the current run. It excludes pauses between cancellation and resume. The displayed seconds are rounded once from total milliseconds and then split into hours, minutes and seconds; e.g. 59.8 s displays as \`1m 0s\`. The performance report can differ slightly because finalization happens after the completion message. If ZIP is unavailable, the status truthfully labels the download as plain \`JSON\`.
 
-## Bewährtes API-Verhalten
+The sample counts and sizes above are illustrative.
 
-- Gesprächs-URL: `window.location.origin + window.location.pathname`; Original-Chat-ID aus `/c/<UUID>`, auch unter `/g/.../c/<UUID>`.
-- Authentifizierung über vorhandenen Browserkontext: `GET /api/auth/session`, `credentials: include`; optionaler `Authorization: Bearer ...`-Header; Token **nur im Speicher**, nicht protokollieren.
-- Nachrichten: `GET /backend-api/conversations/{id}/messages?include_has_versions=true&num_turns=N`. Der Core nutzt standardmäßig `N=1`; der experimentelle Userscript-Modus beginnt mit `N=2` und kann auf `N=1` zurückfallen. `num_turns` begrenzt **nicht** die Anzahl technischer Datensätze; Seiten können stark variieren.
-- Ältere Seiten: `before=<page_info.start_cursor>`, bis `page_info.has_previous_page === false`.
-- Doppelte IDs nur bei identischen Daten deduplizieren; widersprüchliche Duplikate, fehlende Cursor oder ungültige/ leere Seiten verhindern einen angeblich vollständigen Download.
-- Ausfälle: bis zu vier Versuche bei HTTP 429/500/502/503/504 oder Netzwerkfehlern. Nach einem Abbruch bleiben vollständig validierte Seiten im Tab-RAM; Reload löscht den Fortschritt.
-- Wechsel des Chats während des Exports wird erkannt und unterbricht die Ausführung.
+## Output schema
 
-## Exportdatei
-
-```json
+\`\`\`json
 {
   "export_format": "chatgpt-paginated-conversation-v2",
   "source_url": "https://chatgpt.com/c/<conversation-id>",
@@ -93,22 +104,42 @@ Beim neuen Export nach **Close** wird die Controller-/UI-Phase vor dem Anzeigen 
     "attachments_fetched_separately": false
   }
 }
-```
+\`\`\`
 
-Das JSON-Beispiel ist eine **Formillustration**, keine realistische vollständige Exportdatei. Die Seitenmetadaten enthalten originale `page_info`-Attribute und weitere API-Felder; die vollständigen Nachrichtenobjekte werden erhalten. Die Reihenfolge der Seiten wird umgekehrt, **nicht** aber die API-Reihenfolge innerhalb einer Seite. Keine Garantie einer strikt chronologischen Sortierung aller Nachrichten-Verzweigungen.
+This is an **illustrative schema**, not a realistic completed export. \`page_metadata\` retains original response metadata, including \`page_info\`. Message objects remain intact. Because only page order is reversed, no global chronological ordering across all conversation branches is promised.
 
-`pagination_verified:true` bedeutet nur, dass die API das Ende der abgefragten älteren Seiten bestätigt hat. Es garantiert weder alle historischen Versionen / Branches noch externe Anhänge. `attachments_fetched_separately` ist deshalb stets `false`.
+\`pagination_verified: true\` means **the backend reported the end of the fetched older-page chain**. It does not prove that all historical versions, alternative branches, or external attachments were captured. \`attachments_fetched_separately\` is always \`false\`.
 
-## Sicherheit
+## ZIP packaging
 
-- `@match https://chatgpt.com/*`, nur gleiche Origin und keine externen Hosts.
-- Kein Export ohne expliziten Klick auf Menüeintrag **oder** Export-Button. Der in-Page-Button ist auf `chatgpt.com` auch außerhalb einer Unterhaltung sichtbar; vor dem Start validiert der Exporter die Original-Chat-URL.
-- Kein externer Code oder Dienst; ZIP bzw. JSON-Fallback als lokaler Blob-Download.
-- Die exportierten Daten können sensible Inhalte enthalten. Keine echten Exporte in Git, Issues oder CI legen. Alle Tests verwenden erfundene IDs und Nachrichten.
-- Der Tampermonkey-Export unter Firefox ist für V0.1.1 praktisch bestätigt. Die ZIP-Funktion und das terminale Profiling von V0.1.6 benötigen eine Browserprüfung.
+The exporter creates one ZIP32 archive containing exactly one JSON file. It writes the ZIP local header, central directory and end record, uses UTF-8 filenames, checksums with CRC32, and compresses with \`CompressionStream('deflate-raw')\`. No third-party libraries or external services are required. If compression is unavailable or fails, it explicitly downloads **unchanged plain JSON** rather than creating a mislabeled or invalid ZIP. ZIP64 payloads (over approximately 4 GiB) are not supported.
 
-## Bisherige Evidenz
+## Privacy-preserving diagnostics
 
-Der **Konsolen-V2-Exporter** (nicht die Greasemonkey-Fassung) wurde am 31.10.2026 für einen sehr langen technischen Chat zweimal erfolgreich verwendet: **64 Seiten, 4.970 eindeutige Datensätze, 0 Duplikate, 55,35 MiB**, Paginierung beendet. Der nicht-paginierte Conversation-Endpunkt scheiterte mit `HTTP 500 {"detail":"Request timeout"}`. Die automatische URL-Erkennung wurde separat im Browser bestätigt.
+\`Save performance report\` is available only after the active export stops and never downloads automatically. The generated \`chatgpt-export-performance-<timestamp>.json\` includes:
 
-Der Export wurde unter Tampermonkey in Firefox praktisch bestätigt. Für die neue Version 0.2.2 steht noch die spezifische Browser-Abnahme von **ZIP-Export**, **Fallback**, **Close**, Wiederöffnen und terminalem Profiling aus.
+- \`requests\`: page ordinal, attempt ordinal, HTTP status, time to response headers, JSON body read/parse time, \`num_turns\`, and available \`Content-Length\`.
+- \`pages\`: record count, cumulative count, attempts, fetch/parse times and configured request delay for each validated page.
+- \`summary\`: completed page/record counts, retries, HTTP statuses, fetch P50/P95, active-run time across resumptions, JSON serialization and ZIP compression times, JSON/ZIP byte counts and compression ratio.
+
+The report **excludes** conversation URLs, IDs, cursors, message IDs or content, authentication tokens, and HTTP headers. It **does include** timestamps and usage patterns; review reports before sharing.
+
+\`fetch_ms\` measures the client-observed time to HTTP response headers, **not pure server processing**. \`parse_ms\` includes body reading and JSON parsing. Without server-side or network instrumentation, DNS, TLS, server computation and browser scheduling cannot be isolated. Reported percentile values summarize observations and are not statistical guarantees.
+
+For a local content-integrity comparison of two complete ZIP/JSON exports, use \`node scripts/compare-exports.js <baseline> <candidate>\`. The script verifies ZIP CRC32 and compares canonical message objects and order without printing IDs or contents.
+
+## Security and operational limitations
+
+- Match scope is \`https://chatgpt.com/*\`; requests remain on the ChatGPT origin.
+- No export begins on page load: a click or userscript-manager menu action is required.
+- If the conversation changes mid-export, further collection stops to prevent mixing chats.
+- Validated pages survive cancellation/temporary failures **only in the same tab's RAM**. Reload loses the page cache.
+- ZIP and JSON exports may contain sensitive messages, tool records, paths and personal information. **Never commit or share private exports without review.**
+- Endpoints and response schemas are undocumented and can change or time out.
+- User-reported Firefox/Tampermonkey successful export and same-content comparisons exist, but the current UI changes still warrant a final browser smoke test; automated CI does not validate browser sandbox restrictions or actual download permissions.
+
+## Evidence
+
+The original browser-console V2 exporter was used twice on a long conversation on 2026-10-31: **64 API pages, 4,970 distinct records, no duplicates, 55.35 MiB**, and a confirmed terminal cursor. A nonpaginated endpoint previously returned HTTP 500 / request timeout. Later controlled reports for one 5,329-record conversation showed **330.084 s** at **1 turn / 250 ms** versus **185.590 s** at **2 turns / 100 ms**; a **3 turns / 100 ms** run achieved approximately **158.8 s** with 19 pages and zero retries. Local ZIP comparisons confirmed identical full messages and order between the tested one-conversation **2/100, 2/250 and 3/100** exports.
+
+These results describe particular runs, not general performance promises. See [performance baseline](performance-baseline-2026-11-01.md) for details.
