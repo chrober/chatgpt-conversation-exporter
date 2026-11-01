@@ -64,7 +64,7 @@ A new browser tab normally loads the durable saved values rather than unsaved ch
 
 ## Experimental file attachments (feature branch only)
 
-**Version 0.3.0-beta.3** adds a default-OFF **Include attachments (experimental)** checkbox below Turns and Delay in the gear panel. Setting the checkbox is session-only until **Save** is clicked. **Load defaults** turns it off; Save after loading defaults makes this choice permanent.
+**Version 0.3.0-beta.4** adds a default-OFF **Include attachments (experimental)** checkbox below Turns and Delay in the gear panel. Setting the checkbox is session-only until **Save** is clicked. **Load defaults** turns it off; Save after loading defaults makes this choice permanent.
 
 Install the [experimental branch build](https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/refs/heads/feat/optional-conversation-attachments/userscripts/chatgpt-conversation-export.user.js) as an **update/replacement** for the existing userscript, not as a second active copy. The published main-branch v0.2.3 remains unaffected.
 
@@ -74,7 +74,7 @@ Files are limited to **100 attempted references**, **50 MiB each**, **200 MiB to
 
 ### Manual Firefox/Tampermonkey acceptance
 
-- [ ] Verify version 0.3.0-beta.3 and that the checkbox defaults to **off** on a new installation.
+- [ ] Verify version 0.3.0-beta.4 and that the checkbox defaults to **off** on a new installation.
 - [ ] The attachment option shows a **visible empty square** to the left of its label, regardless of ChatGPT light/dark theme. Clicking makes it blue with a white checkmark; clicking again clears it. **Tab + Space/Enter** also toggles it, and `aria-checked` follows the visual state.
 - [ ] With checkbox **off**, export a known conversation; ZIP still has exactly one conversation JSON file and its content matches the main-branch export.
 - [ ] Upload a small ordinary file (e.g., a text file or PDF) to a test conversation; enable the checkbox and export. Inspect the manifest; confirm the file is present under `attachments/` and its bytes match the original.
@@ -91,6 +91,17 @@ Files are limited to **100 attempted references**, **50 MiB each**, **200 MiB to
 - [ ] Compare a multi-file ZIP and a plain conversation ZIP using `node scripts/compare-exports.js`; it must compare the conversation messages and ignore attachment binaries.
 
 These steps **have not yet been verified with live ChatGPT files**. The download APIs are unofficial and may differ by account or file type.
+
+## Diagnose a 403 without exposing private tokens (beta.4)
+
+A user-uploaded 7z file was found, but the `files-by-id` resolver returned HTTP 403. The exporter stops on this response; it cannot infer whether the cause is an unsupported route, a missing workspace context, or restricted file access. **A 403 is not evidence that the original file was deleted.**
+
+1. Update to **v0.3.0-beta.4**, reload the original chat and run the opt-in attachment export once.
+2. Open `attachments-manifest.json`; inspect only `source`, `reference_keys`, `auth_mode`, `conversation_scope`, `resolver_http_statuses`, `resolved_by` and `error`.
+3. In Firefox **Developer Tools → Network**, enable **Preserve logs** and try the ordinary **ChatGPT UI attachment download** for that same file (if offered). Identify the request associated with that click. Compare the **endpoint path**, **HTTP status**, and **presence/absence** of the `chatgpt-account-id` request-header name with the failed request from the exporter. If the UI download is also denied, the exporter cannot solve an underlying access restriction.
+4. Share **only** redacted endpoint paths and status codes if needed. Never paste a full HAR, `Authorization`, `Cookie`, signed `download_url`, query parameters such as `sig` or `token`, or private file contents.
+
+Some Teams/Project file downloads require a valid project or workspace context; that is documented in third-party projects but **not yet established for this particular upload**. Do not guess account IDs or bypass 401/403 responses by repeatedly probing unrelated endpoints.
 
 ## Validate two exports offline
 
