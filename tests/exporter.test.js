@@ -236,7 +236,9 @@ test("the in-page launcher exists even without a userscript menu API", () => {
     let launcher;
     let exported = false;
     const document = {
-        body: { appendChild(node) { launcher = node; } },
+        body: { appendChild(node) {
+            if (node.id === "chatgpt-conversation-export-launcher") launcher = node;
+        } },
         getElementById: () => null,
         createElement: () => ({
             style: {},
