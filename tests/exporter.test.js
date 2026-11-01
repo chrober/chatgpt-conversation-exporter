@@ -676,30 +676,36 @@ test("launcher spinner remains active with progress panel closed and resets on s
     assert.ok(ui.spinner);
     assert.equal(ui.spinner.style.display, "none");
     assert.equal(ui.launcher.attributes["aria-busy"], "false");
-    assert.match(ui.spinner.style.animation, /800ms linear infinite/);
+    assert.equal(ui.spinner.children.length, 3);
+    assert.deepEqual(Array.from(ui.spinner.children, dot => dot.style.animationDelay),
+        ["0ms", "150ms", "300ms"]);
+    for (const dot of ui.spinner.children) {
+        assert.equal(dot.style.background, "currentColor");
+        assert.match(dot.style.animation, /dot-bounce 900ms ease-in-out infinite/);
+    }
     assert.equal(ui.spinner.attributes["aria-hidden"], "true");
 
     ui.launcher.listeners.click();
     await ui.settle();
-    assert.equal(ui.spinner.style.display, "inline-block");
+    assert.equal(ui.spinner.style.display, "inline-flex");
     assert.equal(ui.launcher.attributes["aria-busy"], "true");
     assert.equal(ui.messageRequests, 1);
 
     ui.findButton("Close").listeners.click();
     assert.equal(ui.visiblePanel(), null);
-    assert.equal(ui.spinner.style.display, "inline-block");
+    assert.equal(ui.spinner.style.display, "inline-flex");
 
     ui.pending[0](ok(page([msg("first")], "newer", true)));
     await ui.settle();
     await ui.settle();
     assert.equal(ui.visiblePanel(), null);
-    assert.equal(ui.spinner.style.display, "inline-block");
+    assert.equal(ui.spinner.style.display, "inline-flex");
     assert.equal(ui.messageRequests, 2);
 
     // Reopening only the progress panel does not start a new export.
     ui.launcher.listeners.click();
     assert.equal(ui.messageRequests, 2);
-    assert.equal(ui.spinner.style.display, "inline-block");
+    assert.equal(ui.spinner.style.display, "inline-flex");
     assert.equal(ui.findButton("Cancel").disabled, false);
 
     ui.findButton("Close").listeners.click();
@@ -716,7 +722,7 @@ test("launcher spinner resets on HTTP error and when export is restarted", async
     const ui = makeExportUiHarness();
     ui.launcher.listeners.click();
     await ui.settle();
-    assert.equal(ui.spinner.style.display, "inline-block");
+    assert.equal(ui.spinner.style.display, "inline-flex");
 
     ui.pending[0]({ ok: false, status: 403 });
     await ui.settle();
@@ -730,7 +736,7 @@ test("launcher spinner resets on HTTP error and when export is restarted", async
     await ui.settle();
     assert.equal(ui.findButton("Save performance report").hidden, true);
     assert.equal(ui.findButton("Cancel").hidden, false);
-    assert.equal(ui.spinner.style.display, "inline-block");
+    assert.equal(ui.spinner.style.display, "inline-flex");
     assert.equal(ui.messageRequests, 2);
 
     ui.pending[1](ok(page([msg("recovered")], "done", false)));
@@ -743,7 +749,7 @@ test("launcher spinner stops after user cancellation even when panel was dismiss
     const ui = makeExportUiHarness();
     ui.launcher.listeners.click();
     await ui.settle();
-    assert.equal(ui.spinner.style.display, "inline-block");
+    assert.equal(ui.spinner.style.display, "inline-flex");
 
     const cancel = ui.findButton("Cancel");
     ui.findButton("Close").listeners.click();
@@ -987,7 +993,7 @@ test("switching benchmark mode starts fresh requests; same mode retains prior se
     ui.launcher.listeners.click();
     await ui.settle();
     assert.equal(ui.messageRequests, 2, "changing mode starts new fetch");
-    assert.equal(ui.spinner.style.display, "inline-block");
+    assert.equal(ui.spinner.style.display, "inline-flex");
     ui.pending[1](ok(page([msg("first")], "finished", false)));
     await ui.settle();
     await ui.settle();
@@ -1008,4 +1014,16 @@ test("benchmark settings are read-only during a running export", async () => {
     ui.pending[0](ok(page([msg("last")], "done", false)));
     await ui.settle();
     await ui.settle();
+});
+
+
+test("Dots animation is local CSS with reduced-motion fallback, no rotating ring", () => {
+    const entry = fs.readFileSync(path.join(
+        __dirname, "../src/userscript-entry.js"
+    ), "utf8");
+    assert.match(entry, /@keyframes chatgpt-conversation-export-dot-bounce/);
+    assert.match(entry, /@media \(prefers-reduced-motion: reduce\)/);
+    assert.match(entry, /animation: none !important/);
+    assert.match(entry, /index \* 150 \+ "ms"/);
+    assert.doesNotMatch(entry, /chatgpt-conversation-export-spin[ "]|rotate\(360deg\)/);
 });
