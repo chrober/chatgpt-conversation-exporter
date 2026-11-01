@@ -69,7 +69,7 @@ test("downloads a file reference through same-origin signed URL and returns mani
     };
     const result = await collectAttachments(
         [item("m1", "user", [], [{ file_id: FILE, name: "uploaded.bin" }])],
-        CID, { fetchImpl });
+        CID, { fetchImpl, authHeaders: {} });
     assert.equal(result.summary.downloaded, 1);
     assert.equal(result.summary.failed, 0);
     assert.equal(result.entries.length, 1);
@@ -98,7 +98,7 @@ test("attempts agent sandbox links using message ID and interpreter endpoint", a
     const res = await collectAttachments([
         item("agent-message", "assistant",
             ["[Output](sandbox:/mnt/data/output.csv)"])
-    ], CID, { fetchImpl });
+    ], CID, { fetchImpl, authHeaders: {} });
     assert.equal(res.summary.downloaded, 1);
     assert.match(calls[0], /message_id=agent-message/);
     assert.match(calls[0], /sandbox_path=%2Fmnt%2Fdata%2Foutput.csv/);
@@ -114,7 +114,7 @@ test("unavailable files and non-ChatGPT URLs are recorded but never fetched", as
     };
     const res = await collectAttachments([
         item("m1", "user", [], [{ file_id: FILE }])
-    ], CID, { fetchImpl });
+    ], CID, { fetchImpl, authHeaders: {} });
     assert.equal(calls, 1);
     assert.equal(res.summary.failed, 1);
     assert.equal(res.manifest.items[0].error, "unsupported_download_url");
@@ -174,4 +174,157 @@ test("multifile ZIP refuses unsafe and duplicate paths", async () => {
     await assert.rejects(compressFilesToZip([
         { name: "attachments/../secrets.txt", bytes: "x" }
     ], { CompressionStream: null, Response: null }), /Unsafe/);
+});
+
+
+test("file-service pointer uses by-id endpoint first with bearer authorization", async () => {
+    const id = "file_0123456789ABCDEF1234567890";
+    const messages = [item("a", "user", [{
+        asset_pointer: "file-service://" + id, name: "sample.7z"
+    }])];
+    const discovery = discoverAttachments(messages);
+    assert.equal(discovery.items[0].source, "file-service");
+    const calls = [];
+    const result = await collectAttachments(messages, CID, {
+        authHeaders: { Authorization: "Bearer TEST_TOKEN" },
+        fetchImpl: async (url, options) => {
+            calls.push({ url, options });
+            if (calls.length === 1) return {
+                ok: true, json: async () => ({
+                    download_url: "/backend-api/estuary/content?id=mock"
+                })
+            };
+            return {
+                ok: true, headers: { get: () => null },
+                arrayBuffer: async () => new Uint8Array([1, 2]).buffer
+            };
+        }
+    });
+    assert.equal(result.summary.downloaded, 1);
+    assert.match(calls[0].url, new RegExp("/backend-api/files/" + id + "/download$"));
+    assert.equal(calls[0].options.headers.Authorization, "Bearer TEST_TOKEN");
+    assert.equal(calls[1].options.headers.Authorization, "Bearer TEST_TOKEN");
+    assert.deepEqual(result.manifest.items[0].resolver_routes_tried, ["files-by-id"]);
+    assert.equal(result.manifest.items[0].resolved_by, "files-by-id");
+    assert.equal(JSON.stringify(result.manifest).includes("TEST_TOKEN"), false);
+});
+
+test("sediment pointer tries conversation attachment first and falls back on 404", async () => {
+    const id = "file_0123456789ABCDEF1234567890";
+    const messages = [item("a", "user", [{
+        asset_pointer: "sediment://" + id, name: "sample.7z"
+    }])];
+    const calls = [];
+    const result = await collectAttachments(messages, CID, {
+        authHeaders: {},
+        fetchImpl: async url => {
+            calls.push(url);
+            if (calls.length === 1) return { ok: false, status: 404 };
+            if (calls.length === 2) return {
+                ok: true, json: async () => ({
+                    download_url: "/backend-api/estuary/content?id=mock"
+                })
+            };
+            return {
+                ok: true, headers: { get: () => null },
+                arrayBuffer: async () => new Uint8Array([1, 2]).buffer
+            };
+        }
+    });
+    assert.equal(result.summary.downloaded, 1);
+    assert.match(calls[0], new RegExp("/conversation/" + CID + "/attachment/" + id + "/download$"));
+    assert.match(calls[1], new RegExp("/files/" + id + "/download$"));
+    assert.deepEqual(result.manifest.items[0].resolver_routes_tried,
+        ["conversation-attachment", "files-by-id"]);
+    assert.equal(result.manifest.items[0].resolved_by, "files-by-id");
+});
+
+test("file-ID fallback uses legacy resolver on two 404 responses", async () => {
+    const urls = [];
+    const res = await collectAttachments([
+        item("a", "user", [], [{ file_id: FILE, name: "archive.7z" }])
+    ], CID, {
+        authHeaders: {},
+        fetchImpl: async url => {
+            urls.push(url);
+            if (urls.length < 3) return { ok: false, status: 404 };
+            if (urls.length === 3) return {
+                ok: true, json: async () => ({
+                    download_url: "/backend-api/estuary/content?id=ok"
+                })
+            };
+            return {
+                ok: true, headers: { get: () => null },
+                arrayBuffer: async () => new Uint8Array([1]).buffer
+            };
+        }
+    });
+    assert.equal(urls.length, 4);
+    assert.match(urls[2], /\/backend-api\/files\/download\//);
+    assert.equal(res.summary.downloaded, 1);
+    assert.equal(res.manifest.items[0].resolved_by, "files-download");
+});
+
+test("HTTP 403 stops route fallback and preserves diagnostic without URLs", async () => {
+    const urls = [];
+    const res = await collectAttachments([
+        item("a", "user", [], [{ file_id: FILE }])
+    ], CID, {
+        authHeaders: {},
+        fetchImpl: async url => {
+            urls.push(url);
+            return { ok: false, status: 403 };
+        }
+    });
+    assert.equal(urls.length, 1);
+    assert.equal(res.summary.failed, 1);
+    assert.equal(res.manifest.items[0].error, "metadata HTTP 403");
+    assert.deepEqual(res.manifest.items[0].resolver_routes_tried, ["files-by-id"]);
+});
+
+test("404 diagnostics include all three attempted resolvers without claiming file deletion", async () => {
+    const urls = [];
+    const res = await collectAttachments([
+        item("a", "user", [], [{ file_id: FILE }])
+    ], CID, {
+        authHeaders: {},
+        fetchImpl: async url => {
+            urls.push(url);
+            return { ok: false, status: 404 };
+        }
+    });
+    assert.equal(urls.length, 3);
+    assert.equal(res.manifest.items[0].error, "metadata HTTP 404");
+    assert.deepEqual(res.manifest.items[0].resolver_routes_tried,
+        ["files-by-id", "conversation-attachment", "files-download"]);
+});
+
+test("fetches session bearer for attachment metadata and same-origin binary", async () => {
+    const urls = [], headers = [];
+    const res = await collectAttachments([
+        item("a", "user", [], [{ file_id: FILE }])
+    ], CID, {
+        fetchImpl: async (url, opts) => {
+            urls.push(url);
+            headers.push(opts.headers || {});
+            if (url === "/api/auth/session") return {
+                ok: true, json: async () => ({ accessToken: "SECRET_TOKEN" })
+            };
+            if (urls.length === 2) return {
+                ok: true, json: async () => ({
+                    download_url: "/backend-api/estuary/content?id=ok"
+                })
+            };
+            return {
+                ok: true, headers: { get: () => null },
+                arrayBuffer: async () => new Uint8Array([5]).buffer
+            };
+        }
+    });
+    assert.equal(res.summary.downloaded, 1);
+    assert.equal(urls.length, 3);
+    assert.equal(urls[0], "/api/auth/session");
+    assert.equal(headers[1].Authorization, "Bearer SECRET_TOKEN");
+    assert.equal(headers[2].Authorization, "Bearer SECRET_TOKEN");
+    assert.equal(JSON.stringify(res.manifest).includes("SECRET_TOKEN"), false);
 });
