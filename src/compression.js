@@ -99,9 +99,11 @@ function encodeZipSingleFile(name, inputBytes, deflateBytes) {
  */
 async function compressJsonAsZipOrPlain(json, fileName, options = {}) {
     const now = options.now ?? (() => performance.now());
-    const zipSupported = options.CompressionStream ??
+    const zipSupported = Object.prototype.hasOwnProperty.call(options, "CompressionStream") ?
+        options.CompressionStream :
         (typeof CompressionStream !== "undefined" ? CompressionStream : null);
-    const responseFactory = options.Response ??
+    const responseFactory = Object.prototype.hasOwnProperty.call(options, "Response") ?
+        options.Response :
         (typeof Response !== "undefined" ? Response : null);
     const start = now();
     const bytes = new TextEncoder().encode(json);
