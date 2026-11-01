@@ -6,7 +6,7 @@
     const SETTINGS_KEY = "chatgpt-conversation-exporter.settings.v2";
     const LEGACY_SETTINGS_KEY = "chatgpt-conversation-exporter.settings.v1";
     const SESSION_KEY = "chatgpt-conversation-exporter.session-settings.v2";
-    const DEFAULT_SETTINGS = Object.freeze({ numTurns: 3, delay: 100 });
+    const DEFAULT_SETTINGS = Object.freeze({ numTurns: 3, delay: 100, includeAttachments: false });
     const MAX_TURNS = 1000;
     const MAX_DELAY_MS = 60000;
 
@@ -18,7 +18,7 @@
             raw.delay < 0 || raw.delay > MAX_DELAY_MS) {
             return null;
         }
-        return { numTurns: raw.numTurns, delay: raw.delay };
+        return { numTurns: raw.numTurns, delay: raw.delay, includeAttachments: raw.includeAttachments === true };
     }
 
     function migrateLegacySettings(raw) {
@@ -42,6 +42,8 @@
         sessionMode: null,
         numTurns: DEFAULT_SETTINGS.numTurns,
         delay: DEFAULT_SETTINGS.delay,
+        includeAttachments: false,
+        attachmentInput: null,
         settingsLoaded: false,
         settingsError: "",
         settingsHint: "",
@@ -83,9 +85,11 @@
         if (!state.modeTurnInput || !state.modeDelayInput) return;
         state.modeTurnInput.value = String(state.numTurns);
         state.modeDelayInput.value = String(state.delay);
+        if (state.attachmentInput) state.attachmentInput.checked = state.includeAttachments;
         const disabled = !state.settingsLoaded || Boolean(state.controller);
         state.modeTurnInput.disabled = disabled;
         state.modeDelayInput.disabled = disabled;
+        if (state.attachmentInput) state.attachmentInput.disabled = disabled;
         state.saveSettingsButton.disabled = disabled;
         state.resetSettingsButton.disabled = disabled;
         updateSettingsNote();
@@ -106,7 +110,9 @@
     function applySettings(settings) {
         state.numTurns = settings.numTurns;
         state.delay = settings.delay;
-        storeSessionSettings(settings);
+        state.includeAttachments = settings.includeAttachments === true;
+        storeSessionSettings({ numTurns: state.numTurns, delay: state.delay,
+            includeAttachments: state.includeAttachments });
     }
 
     function readFields() {
@@ -114,7 +120,8 @@
         const delay = state.modeDelayInput?.value?.trim();
         if (!turns || !delay || !/^\d+$/.test(turns) ||
             !/^\d+$/.test(delay)) return null;
-        return validateSettings({ numTurns: Number(turns), delay: Number(delay) });
+        return validateSettings({ numTurns: Number(turns), delay: Number(delay),
+            includeAttachments: state.includeAttachments });
     }
 
     function applyFields() {
@@ -140,7 +147,8 @@
     let pendingSave = Promise.resolve();
     function saveSettings() {
         if (!applyFields()) return;
-        const settings = { numTurns: state.numTurns, delay: state.delay };
+        const settings = { numTurns: state.numTurns, delay: state.delay,
+            includeAttachments: state.includeAttachments };
         // Serialize Greasemonkey async writes to prevent older clicks from
         // overwriting newer saved settings.
         pendingSave = pendingSave.catch(() => {}).then(async () => {
@@ -185,6 +193,7 @@
             if (persisted) {
                 state.numTurns = persisted.numTurns;
                 state.delay = persisted.delay;
+                state.includeAttachments = persisted.includeAttachments;
             }
             try {
                 const rawSession = window.sessionStorage?.getItem(SESSION_KEY);
@@ -193,6 +202,7 @@
                 if (session) {
                     state.numTurns = session.numTurns;
                     state.delay = session.delay;
+                    state.includeAttachments = session.includeAttachments;
                 }
             } catch (error) {
                 console.warn("[ChatGPT Conversation Exporter] Could not load tab settings.", error);
@@ -211,6 +221,7 @@
         state.modePanel = null;
         state.modeTurnInput = null;
         state.modeDelayInput = null;
+        state.attachmentInput = null;
         state.modeNote = null;
         state.saveSettingsButton = null;
         state.resetSettingsButton = null;
@@ -279,6 +290,41 @@
             state.delay, 0, MAX_DELAY_MS);
         root.appendChild(fields);
 
+        const attachmentsLabel = document.createElement("label");
+        Object.assign(attachmentsLabel.style, {
+            display: "flex", gap: "8px", alignItems: "center", marginTop: "12px"
+        });
+        const attachmentCheckbox = document.createElement("input");
+        attachmentCheckbox.id = "chatgpt-conversation-export-include-attachments";
+        attachmentCheckbox.type = "checkbox";
+        attachmentCheckbox.checked = state.includeAttachments;
+        attachmentCheckbox.setAttribute("aria-label", "Include attachments (experimental)");
+        attachmentCheckbox.addEventListener("change", () => {
+            if (state.controller || !state.settingsLoaded) {
+                updateSettingsInputs();
+                return;
+            }
+            state.includeAttachments = Boolean(attachmentCheckbox.checked);
+            storeSessionSettings({
+                numTurns: state.numTurns, delay: state.delay,
+                includeAttachments: state.includeAttachments
+            });
+            state.settingsHint = "Current tab updated; click Save for permanent settings.";
+            state.settingsError = "";
+            updateSettingsNote();
+        });
+        attachmentsLabel.appendChild(attachmentCheckbox);
+        const attachmentText = document.createElement("span");
+        attachmentText.textContent = "Include attachments (experimental)";
+        attachmentsLabel.appendChild(attachmentText);
+        root.appendChild(attachmentsLabel);
+        const attachmentInfo = document.createElement("div");
+        attachmentInfo.textContent = "Download available chat files into ZIP; missing files are listed in a manifest.";
+        Object.assign(attachmentInfo.style, {
+            fontSize: "11px", color: "#c4cedb", marginTop: "4px"
+        });
+        root.appendChild(attachmentInfo);
+
         const buttons = document.createElement("div");
         Object.assign(buttons.style, {
             display: "flex", gap: "8px", marginTop: "12px"
@@ -317,6 +363,7 @@
         state.modePanel = root;
         state.modeTurnInput = turns;
         state.modeDelayInput = delay;
+        state.attachmentInput = attachmentCheckbox;
         state.modeNote = note;
         state.saveSettingsButton = save;
         state.resetSettingsButton = reset;
