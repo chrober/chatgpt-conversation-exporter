@@ -758,27 +758,34 @@ if (typeof module !== "undefined" && module.exports) {
         }
     }
 
-    async function persistSettings() {
+    let pendingSettingsWrite = Promise.resolve();
+    function persistSettings() {
         const prefs = {
             mode: state.mode,
             customNumTurns: state.customNumTurns,
             customDelayMs: state.customDelayMs
         };
-        try {
-            if (typeof GM_setValue === "function") {
-                await GM_setValue(STORAGE_KEY, prefs);
-            } else if (typeof GM !== "undefined" &&
-                       typeof GM.setValue === "function") {
-                await GM.setValue(STORAGE_KEY, prefs);
-            } else {
-                throw new Error("Userscript persistent storage API unavailable.");
+        // Serialize asynchronous Greasemonkey writes so rapid changes cannot
+        // leave an older setting as the last persisted value.
+        pendingSettingsWrite = pendingSettingsWrite.catch(() => {}).then(async () => {
+            try {
+                if (typeof GM_setValue === "function") {
+                    await GM_setValue(STORAGE_KEY, prefs);
+                } else if (typeof GM !== "undefined" &&
+                           typeof GM.setValue === "function") {
+                    await GM.setValue(STORAGE_KEY, prefs);
+                } else {
+                    throw new Error("Userscript persistent storage API unavailable.");
+                }
+                state.settingsError = "";
+            } catch (error) {
+                state.settingsError =
+                    "Could not save settings; they may reset on reload.";
+                console.warn("[ChatGPT Conversation Exporter]", state.settingsError, error);
             }
-            state.settingsError = "";
-        } catch (error) {
-            state.settingsError = "Could not save settings; they may reset on reload.";
-            console.warn("[ChatGPT Conversation Exporter]", state.settingsError, error);
-        }
-        updateSettingsInputs();
+            updateSettingsInputs();
+        });
+        return pendingSettingsWrite;
     }
 
     const settingsReady = (async () => {
@@ -1240,6 +1247,7 @@ if (typeof module !== "undefined" && module.exports) {
             state.controller = null;
             updateLauncherActivity();
             state.exportSettled = true;
+            updateSettingsInputs();
             if (state.panel?.root?.isConnected) {
                 updatePanelActions(state.panel);
             }
