@@ -7,7 +7,8 @@ const os = require("node:os");
 const path = require("node:path");
 const {
     discoverAttachments, collectAttachments, safeSandboxPath,
-    allowedAttachmentURL, readBoundedResponse
+    allowedAttachmentURL, attachmentURLKind, projectGizmoIdFromSource,
+    attachmentMetadataRoutes, readBoundedResponse
 } = require("../src/attachments.js");
 const { compressFilesToZip } = require("../src/compression.js");
 const { readExport, compareExports } = require("../scripts/compare-exports.js");
@@ -385,4 +386,115 @@ test("missing resolver routes preserve individual safe HTTP statuses without URL
         { resolver: "conversation-attachment", status: 410 },
         { resolver: "files-download", status: 410 }
     ]);
+});
+
+
+test("project URL extraction validates ChatGPT origin, project ID and conversation identity", () => {
+    const project = "g-p-" + "a".repeat(32);
+    const url = "https://chatgpt.com/g/" + project + "-music-analysis/c/" + CID;
+    assert.equal(projectGizmoIdFromSource(url, CID), project);
+    assert.equal(projectGizmoIdFromSource(url, "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"), null);
+    assert.equal(projectGizmoIdFromSource(url.replace("chatgpt.com", "evil.com"), CID), null);
+    assert.equal(projectGizmoIdFromSource("https://chatgpt.com/c/" + CID, CID), null);
+    assert.equal(projectGizmoIdFromSource(
+        "https://chatgpt.com/g/g-unsafe-project/c/" + CID, CID), null);
+});
+
+test("a real-style metadata-id upload prefers HAR-confirmed project conversation attachment route", async () => {
+    const project = "g-p-" + "b".repeat(32);
+    const item = { kind: "file", source: "metadata-id",
+        identifier: FILE, message_ids: ["message-one"] };
+    const routes = attachmentMetadataRoutes(item, CID, { gizmoId: project });
+    assert.deepEqual(routes.map(r => r.label),
+        ["conversation-attachment", "files-by-id", "files-download"]);
+    const url = new URL(routes[0].url, "https://chatgpt.com");
+    assert.equal(url.pathname,
+        "/backend-api/conversation/" + CID + "/attachment/" + FILE + "/download");
+    assert.equal(url.searchParams.get("gizmo_id"), project);
+    assert.equal(attachmentMetadataRoutes(item, CID)[0].label, "files-by-id");
+    assert.equal(attachmentMetadataRoutes(item, CID, { gizmoId: "bad" })[0].label,
+        "files-by-id");
+});
+
+test("signed CDN URL classification strictly rejects other hosts, paths and unsigned requests", () => {
+    const path = "/files/" + CID + "/raw";
+    const valid = "https://sdmntprdenmarkeast.oaiusercontent.com" +
+        path + "?sig=TEST_SIGNED_VALUE&se=TEST_EXPIRY";
+    assert.equal(attachmentURLKind(valid), "signed-oaiusercontent");
+    assert.equal(allowedAttachmentURL(valid), true);
+    assert.equal(attachmentURLKind("https://example.com" + path +
+        "?sig=TEST&se=TEST"), null);
+    assert.equal(attachmentURLKind("https://oaiusercontent.com" + path +
+        "?sig=TEST&se=TEST"), null);
+    assert.equal(attachmentURLKind("https://x.oaiusercontent.com.evil.test" + path +
+        "?sig=TEST&se=TEST"), null);
+    assert.equal(attachmentURLKind("http://x.oaiusercontent.com" + path +
+        "?sig=TEST&se=TEST"), null);
+    assert.equal(attachmentURLKind("https://x.oaiusercontent.com" + path), null);
+    assert.equal(attachmentURLKind("https://x.oaiusercontent.com/other/" +
+        CID + "?sig=TEST&se=TEST"), null);
+    assert.equal(attachmentURLKind("https://x.oaiusercontent.com" + path +
+        "?sig=TEST&se=TEST#fragment"), null);
+});
+
+test("HAR-style 2-step project download succeeds without leaking bearer to signed CDN", async () => {
+    const project = "g-p-" + "c".repeat(32);
+    const url = "https://sdmntprdenmarkeast.oaiusercontent.com/files/" +
+        CID + "/raw?sig=TOP_SECRET&se=EXPIRY";
+    const attachment = item("user-msg", "user", [], [
+        { id: FILE, name: "backup.7z" }
+    ]);
+    const calls = [];
+    const bytes = new Uint8Array([55, 122, 188, 6, 42]);
+    const result = await collectAttachments([attachment], CID, {
+        gizmoId: project, conversationScope: "project",
+        authHeaders: { Authorization: "Bearer SECRET_TOKEN" },
+        fetchImpl: async (target, options) => {
+            calls.push({ target, options });
+            if (calls.length === 1) return {
+                ok: true, json: async () => ({
+                    status: "success", download_url: url,
+                    file_name: "backup.7z", file_size_bytes: 5
+                })
+            };
+            return {
+                ok: true, headers: { get: () => null },
+                arrayBuffer: async () => bytes.buffer
+            };
+        }
+    });
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0].options.headers.Authorization, "Bearer SECRET_TOKEN");
+    assert.match(calls[0].target, /gizmo_id=g-p-/);
+    assert.equal(calls[1].target, url);
+    assert.equal(calls[1].options.credentials, "omit");
+    assert.equal(calls[1].options.mode, "cors");
+    assert.equal(calls[1].options.redirect, "error");
+    assert.equal(calls[1].options.referrerPolicy, "no-referrer");
+    assert.equal(calls[1].options.headers, undefined);
+    assert.equal(result.summary.downloaded, 1);
+    assert.deepEqual([...result.entries[0].bytes], [...bytes]);
+    assert.equal(result.manifest.items[0].resolved_by, "conversation-attachment");
+    const manifest = JSON.stringify(result.manifest);
+    assert.equal(manifest.includes("TOP_SECRET"), false);
+    assert.equal(manifest.includes("SECRET_TOKEN"), false);
+});
+
+test("a project resolver HTTP 403 remains a terminal access-denied result", async () => {
+    const urlCalls = [];
+    const result = await collectAttachments([
+        item("msg", "user", [], [{ id: FILE, name: "test.zip" }])
+    ], CID, {
+        gizmoId: "g-p-" + "d".repeat(32),
+        authHeaders: { Authorization: "Bearer TEST" },
+        fetchImpl: async target => {
+            urlCalls.push(target);
+            return { ok: false, status: 403 };
+        }
+    });
+    assert.equal(urlCalls.length, 1);
+    assert.match(urlCalls[0], /\/attachment\//);
+    assert.equal(result.manifest.items[0].error, "metadata HTTP 403");
+    assert.deepEqual(result.manifest.items[0].resolver_routes_tried,
+        ["conversation-attachment"]);
 });
