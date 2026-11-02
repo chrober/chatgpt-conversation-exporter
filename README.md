@@ -2,14 +2,14 @@
 
 A standalone **Tampermonkey/Greasemonkey userscript** that exports **one currently open, original ChatGPT conversation** as JSON. It is not an account-wide export, and it never starts an export automatically on page load.
 
-> **Version 0.3.0-beta.5 (attachment experiment, feature branch only).** The exporter and its pagination flow have been used with Firefox and Tampermonkey. Automated tests cover the current implementation; verify new UI styling and browser-specific download behavior in your own browser. The internal ChatGPT API is undocumented and may change without notice.
+> **Version 0.3.0.** The paginated exporter and an actual user-uploaded 7z attachment have been successfully exported in Firefox/Tampermonkey. Other attachment types remain best-effort and may require further browser validation. The internal ChatGPT APIs are undocumented and may change without notice.
 
 ## Install and use
 
 1. Install **Tampermonkey** (recommended) or **Greasemonkey 4.11+** in Firefox.
-2. [Install the experimental userscript from the feature branch](https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/refs/heads/feat/optional-conversation-attachments/userscripts/chatgpt-conversation-export.user.js), or open [the generated userscript](userscripts/chatgpt-conversation-export.user.js) and install it through your userscript manager. **Update/replace** an earlier installation; do not enable duplicate copies.
+2. [Install the current release userscript from `main`](https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/main/userscripts/chatgpt-conversation-export.user.js), or open [the generated userscript](userscripts/chatgpt-conversation-export.user.js) and install it through your userscript manager. **Update/replace** an earlier installation; do not enable duplicate copies.
 3. Sign in at [chatgpt.com](https://chatgpt.com) and open an **original conversation** with a URL such as `/c/<uuid>` or `/g/.../c/<uuid>`. Reload the tab after installation or update.
-4. Click the compact **Export chat as JSON** button at the bottom right. The transparent gear immediately to its right opens **Export performance**, containing only **Turns** and **Delay**. Defaults are **3 turns / 100 ms**.
+4. Click the compact **Export chat as JSON** button at the bottom right. The transparent gear immediately to its right opens **Export performance**, with **Turns**, **Delay**, and an optional **Include attachments (experimental)** toggle. Defaults are **3 turns / 100 ms**, with attachments **off**.
 5. The progress panel shows counts of **API pages** and **message records**. **Cancel** stops the active run; clicking Export again resumes validated pages in the same tab. **Close** dismisses only the panel, **not** the export; animated **Dots** in the launcher remain visible while the export runs. Click the launcher again to reopen the panel without starting a duplicate request.
 6. After the API confirms the end of pagination, the browser downloads a ZIP containing the conversation JSON (and, optionally, attachments and a manifest when enabled). If ZIP compression is unavailable, the exporter explicitly downloads the original uncompressed `.json` instead. Check the downloaded file.
 
@@ -48,7 +48,7 @@ Changing a valid value updates the **next** export immediately, but is **session
 
 To measure a fresh HTTP export with the *same* settings, **reload the ChatGPT tab** first. Otherwise a completed in-memory session can generate another ZIP without fetching messages again.
 
-## Experimental optional attachment export (v0.3.0-beta.5)
+## Optional attachment export (v0.3.0; opt-in, best effort)
 
 The attachment toggle is a **custom visibly drawn square checkbox** with a clear checkmark rather than a native `<input type="checkbox">`. This avoids ChatGPT's global form CSS hiding the control. It is still keyboard accessible (**Tab**, **Space/Enter**) and exposes `role="checkbox"` / `aria-checked` for assistive technologies.
 
@@ -69,7 +69,7 @@ The entries under `attachments/` are only present for files that actually downlo
 
 **Beta.4 diagnosis after a real 403:** The first metadata resolver returned **HTTP 403** for a user-uploaded 7z archive whose only recognized reference was `metadata-id`. This is *not* proof that the file has been deleted or that it cannot be downloaded through the browser. The exporter still **stops on 401/403**, rather than probing further routes after an explicit denial. The manifest now records only safe information: `reference_keys` (field names of the attachment metadata, never their values), `auth_mode` (cookies-only vs. bearer-plus-cookies), `conversation_scope` (project vs. unknown), and `resolver_http_statuses` (route names and status numbers). Identifiers, signed URLs, tokens, and response bodies are not copied into these diagnostic fields. At the beta.4 stage this did **not** fix the 403. The subsequent successful UI request was analyzed and its key differences incorporated in beta.5, described below.
 
-**Beta.5: evidence-based download fix.** A November 2 Firefox HAR of a successful **ChatGPT UI** file download established a two-step sequence. For a file in a project conversation, ChatGPT used `GET /backend-api/conversation/{conversation_id}/attachment/{file_id}/download?gizmo_id={project_id}` and received JSON containing a time-limited signed `download_url`. The file bytes were retrieved with a separate HTTPS GET from a regional `*.oaiusercontent.com/files/{uuid}/raw` host. The Userscript now extracts the validated project ID from the existing conversation URL, prioritizes that **conversation-attachment** resolver for project uploads represented by `metadata-id`, and accepts **only** tightly validated signed `oaiusercontent.com` raw-file URLs as an additional download destination. The CDN fetch explicitly uses `credentials: "omit"` and never forwards the ChatGPT Bearer token, cookies, or account headers. Same-origin requests still use the signed-in browser context. Both requests are read-only. All signed URL values remain absent from manifests and logs. The HAR did also contain a `ChatGPT-Account-Id` header; the script does not invent this value. **This is validated against synthetic HAR-shaped tests, not yet with the affected attachment.**
+**Beta.5: evidence-based download fix.** A November 2 Firefox HAR of a successful **ChatGPT UI** file download established a two-step sequence. For a file in a project conversation, ChatGPT used `GET /backend-api/conversation/{conversation_id}/attachment/{file_id}/download?gizmo_id={project_id}` and received JSON containing a time-limited signed `download_url`. The file bytes were retrieved with a separate HTTPS GET from a regional `*.oaiusercontent.com/files/{uuid}/raw` host. The Userscript now extracts the validated project ID from the existing conversation URL, prioritizes that **conversation-attachment** resolver for project uploads represented by `metadata-id`, and accepts **only** tightly validated signed `oaiusercontent.com` raw-file URLs as an additional download destination. The CDN fetch explicitly uses `credentials: "omit"` and never forwards the ChatGPT Bearer token, cookies, or account headers. Same-origin requests still use the signed-in browser context. Both requests are read-only. All signed URL values remain absent from manifests and logs. The HAR did also contain a `ChatGPT-Account-Id` header; the script does not invent this value. **The corrected flow subsequently succeeded with the affected user-uploaded 7z archive in Firefox/Tampermonkey.** Other file types and missing/expired references are still not guaranteed.
 
 **Supported discovery (best effort):**
 
@@ -86,7 +86,7 @@ Example completion suffix: `Attachments: 2/3 downloaded | Some attachments were 
 
 **Privacy:** The manifest and original conversation JSON contain identifiers and potentially sensitive file names. Do not upload archives or manifests publicly without reviewing them.
 
-**Validation required:** This is an experimental implementation backed by synthetic API-response tests. The actual ChatGPT download endpoints and user/agent file variants must still be tested in Firefox/Tampermonkey before a stable release. See the [attachment smoke-test checklist](docs/installation-and-validation.md).
+**Validation:** The original user-uploaded 7z case was confirmed successful in Firefox/Tampermonkey after v0.3.0-beta.5. Synthetic tests cover resolver and archive behavior. Image variants, assistant-generated sandbox files, deleted files, and browser-specific CORS behavior remain subject to the [attachment smoke-test checklist](docs/installation-and-validation.md).
 
 ## Local, privacy-preserving content comparison
 
