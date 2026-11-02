@@ -195,6 +195,18 @@ async function readBoundedResponse(response, limit) {
 }
 
 
+function projectGizmoIdFromSource(sourceUrl, conversationId) {
+    if (typeof conversationId !== "string") return null;
+    try {
+        const url = new URL(sourceUrl);
+        if (url.origin !== "https://chatgpt.com") return null;
+        const match = /^\/g\/(g-p-[a-f0-9]{32})(?:-[^/]*)?\/c\/([a-f0-9-]{36})\/?$/i
+            .exec(url.pathname);
+        return match && match[2].toLowerCase() ===
+            conversationId.toLowerCase() ? match[1] : null;
+    } catch { return null; }
+}
+
 function attachmentMetadataRoutes(item, conversationId, options = {}) {
     if (item.kind === "sandbox") {
         return [{
@@ -405,6 +417,7 @@ if (typeof module !== "undefined" && module.exports) {
         discoverAttachments, collectAttachments,
         fileIdFromPointer, safeSandboxPath, safeAttachmentName,
         readBoundedResponse, allowedAttachmentURL, attachmentURLKind,
+        projectGizmoIdFromSource,
         attachmentMetadataRoutes, attachmentAuthHeaders,
         resolveDownloadMetadata
     };
