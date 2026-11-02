@@ -110,7 +110,7 @@ This is an **illustrative schema**, not a realistic completed export. `page_meta
 
 `pagination_verified: true` means **the backend reported the end of the fetched older-page chain**. It does not prove that all historical versions, alternative branches, or external attachments were captured. `attachments_fetched_separately` is always `false`.
 
-## Optional attachments (experimental v0.3.0-beta.4)
+## Optional attachments (experimental v0.3.0-beta.5)
 
 The attachment selection is rendered as a **custom 18×18 pixel visual checkbox** using a native `button` with `role="checkbox"`, a dynamic `aria-checked` attribute and a hand-drawn SVG tick. No browser-native checkbox appearance is used, avoiding style resets by ChatGPT's global CSS. Tab and Space/Enter retain keyboard accessibility.
 
@@ -124,9 +124,9 @@ Download resolution is split by reference type:
 
 1. File IDs: `GET /backend-api/files/download/{file_id}?conversation_id={conversation_id}&inline=false` (expected JSON with a temporary `download_url`).
 2. Assistant sandbox files: `GET /backend-api/conversation/{conversation_id}/interpreter/download?message_id={message_id}&sandbox_path=...` (expected JSON with a temporary `download_url`).
-3. Fetch the resulting binary URL **only** if it is on `https://chatgpt.com/backend-api/...`; forbid untrusted cross-origin redirects. No arbitrary user/assistant-supplied external URL is fetched.
+3. Fetch the resulting binary URL **only** if it is on `https://chatgpt.com/backend-api/...`; forbid untrusted cross-origin redirects. No arbitrary user/assistant-supplied external URL is fetched; only validated signed regional `oaiusercontent.com` raw-file URLs returned by the authenticated ChatGPT metadata API are accepted.
 
-These routes are **undocumented**, may be unavailable for some accounts, and are **not yet proven against live ChatGPT user or agent uploads**. An output containing only a path or expired pointer cannot be reconstructed from the text alone. Externally hosted signed URLs are unsupported in this experimental version, and appear as failures.
+These routes are **undocumented**, may be unavailable for some accounts, and are **not yet proven against live ChatGPT user or agent uploads**. An output containing only a path or expired pointer cannot be reconstructed from the text alone. Signed raw file URLs on validated regional `oaiusercontent.com` hosts are supported; unrelated third-party URLs remain unsupported and are reported as failures.
 
 Safety limits: at most **100** distinct references attempted, **50 MiB** per file and **200 MiB** total downloaded. Bounded stream reading prevents unbounded memory consumption for streaming responses. Downloads are sequential, abortable and report failures individually. Filenames are flattened, sanitized and numbered to avoid archive path traversal/collisions. The manifest does **not** store signed URLs or access tokens; it **does** store originating message IDs, file names and other private metadata, so the ZIP must remain private.
 
@@ -150,6 +150,16 @@ When a ChatGPT upload is seen only as an `id` property in attachment metadata, d
 The manifest now records a whitelisted set of `reference_keys` (field *names*, not values), a coarse `conversation_scope` hint based only on the original URL, `auth_mode` (whether the script had a Bearer token), and `resolver_http_statuses` containing route labels plus HTTP status numbers. This metadata helps identify whether the wrong reference type or authentication context is responsible without saving signed URLs, response bodies, project IDs or credentials.
 
 Further changes to authentication, account-specific headers or endpoint routing require a **successful UI-initiated download request** for the same file as evidence. Some third-party ChatGPT exporters report that a `chatgpt-account-id` header or `gizmo_id` parameter is required for certain Team/Project files; this is not proof that either is appropriate for a regular user attachment. The script must not fabricate context or bypass an access-denied response.
+
+### Evidence-based project downloads and isolated CDN fetches (beta.5)
+
+A real Firefox HAR (reviewed privately, **not added to the repository**) showed the official ChatGPT UI retrieving an uploaded file from a project conversation by first calling the conversation-specific `/attachment/{file_id}/download` API with the project's `gizmo_id`, then downloading the binary from a signed regional `oaiusercontent.com/files/{uuid}/raw` URL. The metadata route returned HTTP 200 and the CDN returned HTTP 200. The HAR also showed an earlier `/files/{file_id}/simple` HTTP 404; that failed probe was not needed for download success.
+
+For uploads discovered only through a metadata `id`, the exporter **prefers the conversation-attachment resolver when a validated project gizmo ID is available**. The project ID is derived solely from a matching `https://chatgpt.com/g/g-p-<32-hex>-<slug>/c/<conversation_id>` conversation URL, never from the file content or a hardcoded user's project ID. No project context is supplied for ordinary chats.
+
+The resolver's returned `download_url` is permitted only on `https://chatgpt.com/backend-api/...` or on an HTTPS regional subdomain of `oaiusercontent.com` with a signed `/files/{uuid}/raw` path. Arbitrary external hosts, HTTP, unknown paths, credentials in URLs and redirects remain disallowed. **Cross-origin CDN fetches explicitly set `credentials: "omit"` and do not pass Bearer, cookies or account headers.** The signed URL is used only for the live request and is never copied to the manifest or logs. MIME type is not trusted; the binary is read as bytes with strict per-file and aggregate size bounds.
+
+This is a design and synthetic-test result; the original reported attachment **still requires a browser validation run**. The official request contained a `ChatGPT-Account-Id` header, but this value is not derived from the HAR or embedded in the exporter. A remaining HTTP 403 may indicate missing legitimate account context or permissions rather than an invalid URL.
 
 ## ZIP packaging
 
