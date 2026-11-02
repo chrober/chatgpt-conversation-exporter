@@ -100,11 +100,99 @@ function decodeSingleFileZip(input) {
     return bytes;
 }
 
+
+/**
+ * Extract only the root conversation JSON from an attachment-enabled ZIP.
+ * Other entries are deliberately outside message-content equivalence scope.
+ * Bounds, local/central name matching and JSON CRC are always verified.
+ */
+function decodeConversationFromMultiZip(input) {
+    let end = -1;
+    for (let i = input.length - 22;
+        i >= Math.max(0, input.length - 22 - 65535); i--) {
+        if (input.readUInt32LE(i) === ZIP_END &&
+            i + 22 + input.readUInt16LE(i + 20) === input.length) {
+            end = i;
+            break;
+        }
+    }
+    if (end < 0 || input.readUInt16LE(end + 4) !== 0 ||
+        input.readUInt16LE(end + 6) !== 0) {
+        throw new Error("Invalid multi-entry ZIP end record.");
+    }
+    const count = input.readUInt16LE(end + 10);
+    const start = input.readUInt32LE(end + 16);
+    const size = input.readUInt32LE(end + 12);
+    if (count < 1 || start + size !== end) {
+        throw new Error("Invalid ZIP central directory size.");
+    }
+    let at = start, target = null;
+    const seen = new Set();
+    for (let i = 0; i < count; i++) {
+        if (at + 46 > end || input.readUInt32LE(at) !== ZIP_CENTRAL) {
+            throw new Error("Invalid ZIP central entry.");
+        }
+        const flags = input.readUInt16LE(at + 8);
+        const method = input.readUInt16LE(at + 10);
+        const crc = input.readUInt32LE(at + 16);
+        const packedSize = input.readUInt32LE(at + 20);
+        const rawSize = input.readUInt32LE(at + 24);
+        const nameLen = input.readUInt16LE(at + 28);
+        const extraLen = input.readUInt16LE(at + 30);
+        const commentLen = input.readUInt16LE(at + 32);
+        const local = input.readUInt32LE(at + 42);
+        const next = at + 46 + nameLen + extraLen + commentLen;
+        if (next > end || (flags & 1) || ![0, 8].includes(method) ||
+            [packedSize, rawSize, local].includes(0xffffffff)) {
+            throw new Error("Unsupported or corrupt ZIP entry.");
+        }
+        const name = input.subarray(at + 46, at + 46 + nameLen).toString("utf8");
+        if (!name || name.startsWith("/") || name.includes("\\") ||
+            name.split("/").includes("..") || seen.has(name)) {
+            throw new Error("Unsafe or duplicate ZIP entry.");
+        }
+        seen.add(name);
+        if (local + 30 > start || input.readUInt32LE(local) !== ZIP_LOCAL ||
+            input.readUInt16LE(local + 8) !== method) {
+            throw new Error("Invalid local ZIP header.");
+        }
+        const localNameLen = input.readUInt16LE(local + 26);
+        const localExtraLen = input.readUInt16LE(local + 28);
+        const localName = input.subarray(local + 30, local + 30 + localNameLen)
+            .toString("utf8");
+        const payload = local + 30 + localNameLen + localExtraLen;
+        if (localName !== name || payload + packedSize > start) {
+            throw new Error("Invalid local ZIP boundaries.");
+        }
+        if (/^chatgpt-conversation-[a-zA-Z0-9-]+\.json$/.test(name) ||
+            (count === 1 && name.endsWith(".json") &&
+                path.basename(name) === name)) {
+            if (target) throw new Error("Multiple conversation JSON entries.");
+            if (rawSize > MAX_JSON_BYTES) {
+                throw new Error("Decoded JSON exceeds the 256 MiB safety limit.");
+            }
+            const packed = input.subarray(payload, payload + packedSize);
+            const bytes = method === 8 ?
+                zlib.inflateRawSync(packed, { maxOutputLength: MAX_JSON_BYTES }) :
+                Buffer.from(packed);
+            if (bytes.byteLength !== rawSize || crc32(bytes) !== crc) {
+                throw new Error("Conversation JSON size or CRC32 mismatch.");
+            }
+            target = bytes;
+        }
+        at = next;
+    }
+    if (at !== end || !target) {
+        throw new Error("ZIP has no valid root conversation JSON entry.");
+    }
+    return target;
+}
+
 function readExport(file) {
     const bytes = fs.readFileSync(file);
     let decoded;
     if (bytes.readUInt32LE(0) === ZIP_LOCAL) {
-        decoded = decodeSingleFileZip(bytes);
+        decoded = decodeConversationFromMultiZip(bytes);
     } else {
         if (bytes.length > MAX_JSON_BYTES) {
             throw new Error("JSON exceeds the 256 MiB safety limit.");
@@ -190,4 +278,4 @@ function cli(args, logger = console) {
 }
 
 if (require.main === module) process.exitCode = cli(process.argv.slice(2));
-module.exports = { decodeSingleFileZip, readExport, compareExports, cli };
+module.exports = { decodeSingleFileZip, decodeConversationFromMultiZip, readExport, compareExports, cli };

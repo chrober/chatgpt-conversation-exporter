@@ -10,7 +10,7 @@ A standalone Tampermonkey/Greasemonkey userscript exports **only the original Ch
 | --- | --- |
 | `src/exporter-core.js` | Original-conversation URL validation, authenticated pagination, retries, cursor validation, deduplication, in-tab resume and export audit |
 | `src/profiling.js` | Privacy-preserving request/page timings, counters and active-run tracking |
-| `src/compression.js` | Single-entry ZIP32 output with UTF-8 filename, CRC32 and browser-native DEFLATE; lossless plain-JSON fallback |
+| `src/compression.js` | Legacy single-entry ZIP32 plus experimental multi-entry ZIP32 (CRC32, DEFLATE or STORED), preserving plain-JSON fallback on packaging failures |
 | `src/userscript-entry.js` | Tampermonkey/Greasemonkey integration, launcher, gear settings, progress panel, cancellation, downloads |
 | `scripts/compare-exports.js` | Offline ZIP/JSON integrity and message equality comparator |
 | `scripts/build-userscript.js` | Deterministic assembly of source modules and userscript metadata |
@@ -110,9 +110,60 @@ This is an **illustrative schema**, not a realistic completed export. `page_meta
 
 `pagination_verified: true` means **the backend reported the end of the fetched older-page chain**. It does not prove that all historical versions, alternative branches, or external attachments were captured. `attachments_fetched_separately` is always `false`.
 
+## Optional attachments (v0.3.0; best effort)
+
+The attachment selection is rendered as a **custom 18×18 pixel visual checkbox** using a native `button` with `role="checkbox"`, a dynamic `aria-checked` attribute and a hand-drawn SVG tick. No browser-native checkbox appearance is used, avoiding style resets by ChatGPT's global CSS. Tab and Space/Enter retain keyboard accessibility.
+
+`src/attachments.js` implements **best-effort** file discovery and retrieval *after* a validated conversation export. It is deliberately separate from the original pagination core. The feature is disabled by default and is included in the existing session-only settings / explicit **Save** model.
+
+The discovery pass scans attachment metadata, structured image/file asset pointers, and assistant-generated Markdown `sandbox:/mnt/data/...` links. It deduplicates file IDs across messages and preserves originating message references in a **private** manifest.
+
+**Beta.3 resolver update:** A `file_...` pointer can be backed by different storage systems. The module now retains the structured `asset_pointer` source (`sediment`, `file-service`, or plain metadata), selects its matching resolver first, and tries the other known same-origin metadata routes only after **404/410**. A **401/403** stops further probing. The module obtains the current `/api/auth/session` Bearer token for same-origin metadata and binary requests (cookies remain included). Tokens and signed URLs are never placed in the manifest. Each file's manifest record names attempted resolver categories (`resolver_routes_tried`) and the successful category (`resolved_by`), if any. This improves diagnosis but cannot ensure access to deleted or restricted files.
+
+Download resolution is split by reference type:
+
+1. File IDs: `GET /backend-api/files/download/{file_id}?conversation_id={conversation_id}&inline=false` (expected JSON with a temporary `download_url`).
+2. Assistant sandbox files: `GET /backend-api/conversation/{conversation_id}/interpreter/download?message_id={message_id}&sandbox_path=...` (expected JSON with a temporary `download_url`).
+3. Fetch the binary only from `https://chatgpt.com/backend-api/...` or a narrowly validated, signed HTTPS `*.oaiusercontent.com/files/{uuid}/raw` URL returned by the authenticated metadata endpoint. For the signed CDN, omit cookies and authorization headers entirely. Never follow untrusted cross-origin redirects or arbitrary user-supplied URLs.
+
+These routes are **undocumented** and may be unavailable for some accounts. **A real user-uploaded 7z file in a project conversation was successfully downloaded with the project-aware flow in Firefox/Tampermonkey; assistant-generated files and other upload types are not yet proven.** An output containing only a path or expired pointer cannot be reconstructed from the text alone. Signed raw file URLs on validated regional `oaiusercontent.com` hosts are supported; unrelated third-party URLs remain unsupported and are reported as failures.
+
+Safety limits: at most **100** distinct references attempted, **50 MiB** per file and **200 MiB** total downloaded. Bounded stream reading prevents unbounded memory consumption for streaming responses. Downloads are sequential, abortable and report failures individually. Filenames are flattened, sanitized and numbered to avoid archive path traversal/collisions. The manifest does **not** store signed URLs or access tokens; it **does** store originating message IDs, file names and other private metadata, so the ZIP must remain private.
+
+When enabled, the archive contains:
+
+```text
+chatgpt-conversation-<id>.json
+attachments-manifest.json
+attachments/001-file.pdf
+attachments/002-agent-report.csv
+```
+
+Missing files are absent from `attachments/`, but are listed under `manifest.items[].status="failed"` with a sanitized error category. The manifest includes discovered/attempted/downloaded/failed/skipped counts and total retrieved bytes. ZIP packaging supports both DEFLATE and STORED entries without needing additional libraries. If multi-entry packaging fails, the exporter warns and uses its existing single-conversation ZIP/JSON path; it does **not** silently claim attachments were packaged.
+
+The local comparator now accepts attachment ZIPs but compares **only the root conversation JSON**, ignoring attachment binaries. It verifies the root JSON CRC32 and structural ZIP entry boundaries. This preserves the intended message-ID and full-message equality audit without making binary attachment equality claims.
+
+### Read-only diagnostics for inaccessible uploads (beta.4)
+
+When a ChatGPT upload is seen only as an `id` property in attachment metadata, discovery identifies it as `source: "metadata-id"`. This field alone is insufficient to establish the underlying file service. In a real test, an experimental `files-by-id` request returned **HTTP 403**. Continuing blindly to additional routes would hide explicit access-denied responses, so resolver failover remains restricted to **404/410**.
+
+The manifest now records a whitelisted set of `reference_keys` (field *names*, not values), a coarse `conversation_scope` hint based only on the original URL, `auth_mode` (whether the script had a Bearer token), and `resolver_http_statuses` containing route labels plus HTTP status numbers. This metadata helps identify whether the wrong reference type or authentication context is responsible without saving signed URLs, response bodies, project IDs or credentials.
+
+Further changes to authentication, account-specific headers or endpoint routing require a **successful UI-initiated download request** for the same file as evidence. Some third-party ChatGPT exporters report that a `chatgpt-account-id` header or `gizmo_id` parameter is required for certain Team/Project files; this is not proof that either is appropriate for a regular user attachment. The script must not fabricate context or bypass an access-denied response.
+
+### Evidence-based project downloads and isolated CDN fetches (beta.5)
+
+A real Firefox HAR (reviewed privately, **not added to the repository**) showed the official ChatGPT UI retrieving an uploaded file from a project conversation by first calling the conversation-specific `/attachment/{file_id}/download` API with the project's `gizmo_id`, then downloading the binary from a signed regional `oaiusercontent.com/files/{uuid}/raw` URL. The metadata route returned HTTP 200 and the CDN returned HTTP 200. The HAR also showed an earlier `/files/{file_id}/simple` HTTP 404; that failed probe was not needed for download success.
+
+For uploads discovered only through a metadata `id`, the exporter **prefers the conversation-attachment resolver when a validated project gizmo ID is available**. The project ID is derived solely from a matching `https://chatgpt.com/g/g-p-<32-hex>-<slug>/c/<conversation_id>` conversation URL, never from the file content or a hardcoded user's project ID. No project context is supplied for ordinary chats.
+
+The resolver's returned `download_url` is permitted only on `https://chatgpt.com/backend-api/...` or on an HTTPS regional subdomain of `oaiusercontent.com` with a signed `/files/{uuid}/raw` path. Arbitrary external hosts, HTTP, unknown paths, credentials in URLs and redirects remain disallowed. **Cross-origin CDN fetches explicitly set `credentials: "omit"` and do not pass Bearer, cookies or account headers.** The signed URL is used only for the live request and is never copied to the manifest or logs. MIME type is not trusted; the binary is read as bytes with strict per-file and aggregate size bounds.
+
+The original reported user-uploaded 7z attachment was subsequently **successfully downloaded with the userscript in Firefox/Tampermonkey**, validating this specific project-aware flow beyond synthetic tests. The official UI request contained a `ChatGPT-Account-Id` header, but that value is not extracted from the HAR or embedded in the exporter. Other accounts, file services and agent outputs still require validation. A future 403 may indicate a legitimate access restriction rather than an invalid URL.
+
 ## ZIP packaging
 
-The exporter creates one ZIP32 archive containing exactly one JSON file. It writes the ZIP local header, central directory and end record, uses UTF-8 filenames, checksums with CRC32, and compresses with `CompressionStream('deflate-raw')`. No third-party libraries or external services are required. If compression is unavailable or fails, it explicitly downloads **unchanged plain JSON** rather than creating a mislabeled or invalid ZIP. ZIP64 payloads (over approximately 4 GiB) are not supported.
+With attachments disabled, the exporter creates one ZIP32 archive containing exactly one JSON file. With the optional experiment enabled, it creates a multi-entry ZIP containing JSON, manifest and successfully retrieved binary files. It writes the ZIP local header, central directory and end record, uses UTF-8 filenames, checksums with CRC32, and compresses with `CompressionStream('deflate-raw')`. No third-party libraries or external services are required. If compression is unavailable or fails, it explicitly downloads **unchanged plain JSON** rather than creating a mislabeled or invalid ZIP. ZIP64 payloads (over approximately 4 GiB) are not supported.
 
 ## Privacy-preserving diagnostics
 
@@ -126,11 +177,11 @@ The report **excludes** conversation URLs, IDs, cursors, message IDs or content,
 
 `fetch_ms` measures the client-observed time to HTTP response headers, **not pure server processing**. `parse_ms` includes body reading and JSON parsing. Without server-side or network instrumentation, DNS, TLS, server computation and browser scheduling cannot be isolated. Reported percentile values summarize observations and are not statistical guarantees.
 
-For a local content-integrity comparison of two complete ZIP/JSON exports, use `node scripts/compare-exports.js <baseline> <candidate>`. The script verifies ZIP CRC32 and compares canonical message objects and order without printing IDs or contents.
+For a local **conversation-content** integrity comparison of two complete ZIP/JSON exports (including attachment-enabled ZIPs), use `node scripts/compare-exports.js <baseline> <candidate>`. The script verifies ZIP CRC32 and compares canonical message objects and order without printing IDs or contents.
 
 ## Security and operational limitations
 
-- Match scope is `https://chatgpt.com/*`; requests remain on the ChatGPT origin.
+- The userscript runs on `https://chatgpt.com/*`; API requests remain on the ChatGPT origin. Optional attachment binary fetches may use strictly validated signed `*.oaiusercontent.com` HTTPS CDN URLs with credentials omitted.
 - No export begins on page load: a click or userscript-manager menu action is required.
 - If the conversation changes mid-export, further collection stops to prevent mixing chats.
 - Validated pages survive cancellation/temporary failures **only in the same tab's RAM**. Reload loses the page cache.

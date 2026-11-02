@@ -1,0 +1,57 @@
+name: Publish stable GitHub release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "package.json"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Verify build, tests and stable version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run check
+          version="$(node -p 'require("./package.json").version')"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Refusing to release non-stable version: $version"
+            exit 1
+          fi
+          if ! grep -Fq "// @version      $version" userscripts/chatgpt-conversation-export.user.js; then
+            echo "Generated userscript does not match package version"
+            exit 1
+          fi
+          if [[ ! -f "docs/releases/v${version}.md" ]]; then
+            echo "Missing stable release notes"
+            exit 1
+          fi
+          echo "tag=v${version}" >> "$GITHUB_OUTPUT"
+      - name: Create GitHub release with installable userscript
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ steps.version.outputs.tag }}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists; skipping to prevent duplicates."
+            exit 0
+          fi
+          gh release create "$tag" \
+            userscripts/chatgpt-conversation-export.user.js \
+            --target "$GITHUB_SHA" \
+            --title "ChatGPT Conversation Exporter $tag" \
+            --notes-file "docs/releases/$tag.md" \
+            --latest

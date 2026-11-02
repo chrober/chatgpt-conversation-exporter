@@ -555,6 +555,8 @@ function makeExportUiHarness(storage = null, useAsyncStorage = false,
         document.getElementById("chatgpt-conversation-export-custom-turns");
     const customDelay = () =>
         document.getElementById("chatgpt-conversation-export-custom-delay");
+    const attachmentInput = () =>
+        document.getElementById("chatgpt-conversation-export-include-attachments");
     const findButton = name => elements.filter(e =>
         e.tagName === "button" && e.textContent === name && e.isConnected
     ).at(-1);
@@ -564,7 +566,7 @@ function makeExportUiHarness(storage = null, useAsyncStorage = false,
     const settle = () => new Promise(resolve => setImmediate(resolve));
     return {
         launcher, spinner, pending, findButton, modeButton, toolbar, customTurns,
-        customDelay, visiblePanel, settle, browserSession, messageUrls,
+        customDelay, attachmentInput, visiblePanel, settle, browserSession, messageUrls,
         get messageRequests() { return messageRequests; }
     };
 }
@@ -1073,7 +1075,7 @@ test("session-only edits affect next API request without saving persistently", a
     assert.equal(durable.size, 0, "editing never calls GM_setValue");
     const ephemeral = JSON.parse(session.get(
         "chatgpt-conversation-exporter.session-settings.v2"));
-    assert.deepEqual(ephemeral, { numTurns: 12, delay: 650 });
+    assert.deepEqual(ephemeral, { numTurns: 12, delay: 650, includeAttachments: false });
     ui.launcher.listeners.click();
     await ui.settle();
     assert.match(ui.messageUrls[0], /num_turns=12/);
@@ -1109,7 +1111,7 @@ test("Save commits values to userscript storage for future sessions", async () =
     await ui.settle();
     await ui.settle();
     assert.deepEqual(durable.get("chatgpt-conversation-exporter.settings.v2"),
-        { numTurns: 25, delay: 300 });
+        { numTurns: 25, delay: 300, includeAttachments: false });
     const nextSession = makeExportUiHarness(durable, false, new Map());
     await nextSession.settle();
     nextSession.modeButton().listeners.click();
@@ -1136,7 +1138,7 @@ test("Load defaults changes session only; Save afterward persists defaults", asy
     ui.findButton("Save").listeners.click();
     await ui.settle();
     await ui.settle();
-    assert.deepEqual(durable.get(key), { numTurns: 3, delay: 100 });
+    assert.deepEqual(durable.get(key), { numTurns: 3, delay: 100, includeAttachments: false });
     const freshSession = makeExportUiHarness(durable);
     await freshSession.settle();
     freshSession.modeButton().listeners.click();
@@ -1230,7 +1232,7 @@ test("rapid Greasemonkey Save clicks serialize and persist last values", async (
     await ui.settle();
     await ui.settle();
     assert.deepEqual(durable.get("chatgpt-conversation-exporter.settings.v2"),
-        { numTurns: 5, delay: 100 });
+        { numTurns: 5, delay: 100, includeAttachments: false });
 });
 
 test("export core supports configurable batches higher than three", async () => {
@@ -1313,4 +1315,125 @@ test("duration formatter rounds up across minute and hour boundaries", () => {
     assert.equal(formatDuration(142900), "2m 23s");
     assert.equal(formatDuration(59800), "1m 0s");
     assert.equal(formatDuration(3599600), "1h 0m 0s");
+});
+
+
+test("attachment checkbox is opt-in, session scoped and saved only on explicit Save", async () => {
+    const durable = new Map();
+    const tab = new Map();
+    const ui = makeExportUiHarness(durable, false, tab);
+    await ui.settle();
+    ui.modeButton().listeners.click();
+    const check = ui.attachmentInput();
+    assert.equal(check.tagName, "button");
+    assert.equal(check.attributes.role, "checkbox");
+    assert.equal(check.attributes["aria-checked"], "false");
+    assert.equal(check.style.display, "inline-flex");
+    assert.equal(check.style.width, "18px");
+    assert.equal(check.style.height, "18px");
+    assert.equal(check.style.border, "1px solid #8c99a8");
+    assert.equal(check.children[0].tagName, "svg");
+    assert.equal(check.children[0].style.visibility, "hidden");
+    check.listeners.click();
+    assert.equal(check.attributes["aria-checked"], "true");
+    assert.equal(check.children[0].style.visibility, "visible");
+    assert.equal(durable.size, 0);
+    assert.equal(JSON.parse(tab.get(
+        "chatgpt-conversation-exporter.session-settings.v2")).includeAttachments, true);
+    ui.findButton("Save").listeners.click();
+    await ui.settle();
+    await ui.settle();
+    assert.equal(durable.get("chatgpt-conversation-exporter.settings.v2").includeAttachments, true);
+    const reloaded = makeExportUiHarness(durable);
+    await reloaded.settle();
+    reloaded.modeButton().listeners.click();
+    assert.equal(reloaded.attachmentInput().attributes["aria-checked"], "true");
+    reloaded.findButton("Load defaults").listeners.click();
+    assert.equal(reloaded.attachmentInput().attributes["aria-checked"], "false");
+    assert.equal(durable.get("chatgpt-conversation-exporter.settings.v2").includeAttachments, true);
+});
+
+test("attachment controls are disabled while export is active", async () => {
+    const ui = makeExportUiHarness();
+    ui.launcher.listeners.click();
+    await ui.settle();
+    ui.modeButton().listeners.click();
+    const check = ui.attachmentInput();
+    assert.equal(check.disabled, true);
+    assert.equal(check.attributes["aria-checked"], "false");
+    check.listeners.click();
+    assert.equal(check.attributes["aria-checked"], "false");
+    ui.pending[0](ok(page([msg("last")], "end", false)));
+    await ui.settle();
+    await ui.settle();
+    assert.equal(check.disabled, false);
+});
+
+
+test("attachment-enabled UI exports ZIP with a manifest and counts retrieved files", async () => {
+    const ui = makeExportUiHarness(new Map());
+    await ui.settle();
+    ui.modeButton().listeners.click();
+    const checkbox = ui.attachmentInput();
+    checkbox.listeners.click();
+    ui.launcher.listeners.click();
+    await ui.settle();
+    const withAttachment = {
+        ...msg("user-with-file", "user"),
+        metadata: { attachments: [{
+            file_id: "file_0000000012345678abcdef1234567890",
+            name: "notes.txt"
+        }] }
+    };
+    ui.pending[0](ok(page([withAttachment], "end", false)));
+    await ui.settle();
+    await ui.settle();
+    assert.equal(ui.messageRequests, 2, "file metadata request should follow conversation");
+    assert.match(ui.messageUrls[1], /\/backend-api\/files\/file_[^/]+\/download$/);
+    ui.pending[1]({
+        ok: true, status: 200,
+        json: async () => ({
+            download_url: "/backend-api/estuary/content?sig=TEST_SIGNATURE",
+            file_name: "notes.txt"
+        })
+    });
+    await ui.settle();
+    await ui.settle();
+    assert.equal(ui.messageRequests, 3);
+    ui.pending[2]({
+        ok: true, status: 200,
+        headers: { get: () => null },
+        arrayBuffer: async () => new TextEncoder().encode("hello").buffer
+    });
+    await ui.settle();
+    await ui.settle();
+    await ui.settle();
+    const panel = ui.visiblePanel();
+    assert.equal(panel.children[1].textContent,
+        "Export complete – ZIP download started.");
+    assert.match(panel.children[2].textContent, /Attachments: 1\/1 downloaded/);
+    assert.doesNotMatch(panel.children[2].textContent, /TEST_SIGNATURE/);
+});
+
+
+test("attachment indicator and label click toggle an explicit visible checkbox independently of host input styles", async () => {
+    const ui = makeExportUiHarness(new Map());
+    await ui.settle();
+    ui.modeButton().listeners.click();
+    const checkbox = ui.attachmentInput();
+    const row = checkbox.parentNode || null;
+    // The button's own visible SVG check mark must track the ARIA checked state.
+    assert.equal(checkbox.type, "button");
+    assert.equal(checkbox.attributes["aria-checked"], "false");
+    assert.equal(checkbox.children[0].style.visibility, "hidden");
+    checkbox.listeners.click();
+    assert.equal(checkbox.attributes["aria-checked"], "true");
+    assert.equal(checkbox.children[0].style.visibility, "visible");
+    assert.equal(checkbox.style.backgroundColor, "#2563eb");
+    checkbox.listeners.click();
+    assert.equal(checkbox.attributes["aria-checked"], "false");
+    assert.equal(checkbox.children[0].style.visibility, "hidden");
+    assert.equal(checkbox.style.backgroundColor, "#354152");
+    assert.equal(checkbox.attributes.role, "checkbox");
+    assert.equal(row === null || row.tagName === "div", true);
 });

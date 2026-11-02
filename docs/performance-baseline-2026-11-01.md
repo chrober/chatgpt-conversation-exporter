@@ -148,7 +148,7 @@ The user independently ran the offline ZIP comparator on **Fast vs Pacing** and 
 
 These results establish integrity for that particular conversation and parameter choices, **not for every possible conversation**. The private conversation ZIPs were never committed.
 
-### Current behavior (v0.2.3)
+### Current behavior (v0.3.0)
 
 The browser UI defaults to **3 turns / 100 ms**. Users can enter **1–1000 turns** and **0–60000 ms**; changes are session-only until explicitly saved, while **Load defaults** applies 3/100 without immediately changing durable preferences. The standalone core retains its conservative **1 turn / 250 ms** defaults.
 
@@ -157,3 +157,8 @@ Higher turn values are an input capability, not proven optimizations. The existi
 The completion message now rounds the active runtime to **whole seconds** (e.g. `2m 23s`), while `summary.active_run_ms` retains millisecond precision. The progress message no longer includes "checking for older pages", which had merely described ordinary backward pagination.
 
 There were no additional repeated multi-chat benchmarks after the three-mode content-equality verification; do not extrapolate these individual results into a general performance guarantee.
+
+
+### v0.3.0 release note
+
+The optional attachment download (default OFF) is performed **after** validated message pagination. Its sequential file requests and ZIP packaging can increase total export time; the earlier one-, two-, and three-turn benchmarks above measured **conversation-only exports**, not full attachment-enabled exports. A user-uploaded 7z archive was successfully retrieved from a project conversation in Firefox/Tampermonkey using the project-specific resolver and signed media CDN. No generalized speed or completeness benchmark for attachment downloads has been conducted.

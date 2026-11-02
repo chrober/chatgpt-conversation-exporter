@@ -145,6 +145,110 @@ async function compressJsonAsZipOrPlain(json, fileName, options = {}) {
     }
 }
 
+
+/**
+ * Multi-entry ZIP32 for opt-in attachments. Unlike the legacy single-entry
+ * exporter, this always creates a ZIP: when DEFLATE is unavailable entries
+ * are stored without compression rather than dropping attachment files.
+ */
+async function compressFilesToZip(entries, options = {}) {
+    if (!Array.isArray(entries) || !entries.length || entries.length > 1000) {
+        throw new Error("ZIP requires 1–1000 entries.");
+    }
+    const compression = Object.prototype.hasOwnProperty.call(options, "CompressionStream") ?
+        options.CompressionStream :
+        (typeof CompressionStream !== "undefined" ? CompressionStream : null);
+    const responseFactory = Object.prototype.hasOwnProperty.call(options, "Response") ?
+        options.Response :
+        (typeof Response !== "undefined" ? Response : null);
+    const now = options.now ?? (() => performance.now());
+    const started = now();
+    const utf8 = new TextEncoder();
+    const U32 = 0xffffffff, locals = [], centrals = [], seen = new Set();
+    let offset = 0;
+    for (const entry of entries) {
+        const name = entry.name;
+        if (typeof name !== "string" || !name ||
+            name.startsWith("/") || name.includes("\\") ||
+            name.split("/").some(x => !x || x === ".." || x === ".") ||
+            seen.has(name)) {
+            throw new Error("Unsafe or duplicate ZIP filename.");
+        }
+        seen.add(name);
+        const nameBytes = utf8.encode(name);
+        if (nameBytes.length > 0xffff) throw new Error("ZIP filename too long.");
+        const raw = typeof entry.bytes === "string" ? utf8.encode(entry.bytes) :
+            entry.bytes instanceof Uint8Array ? entry.bytes : null;
+        if (!raw || raw.byteLength > U32) {
+            throw new Error("ZIP entry is not a supported byte sequence.");
+        }
+        let compressed = raw, method = 0;
+        // Known pre-compressed formats gain little and avoid extra CPU/RAM.
+        const precompressed = /\.(?:png|jpe?g|webp|gif|mp[34]|zip|gz|7z|pdf)$/i.test(name);
+        if (compression && responseFactory && !precompressed && raw.byteLength) {
+            try {
+                const stream = new Blob([raw]).stream()
+                    .pipeThrough(new compression("deflate-raw"));
+                compressed = new Uint8Array(
+                    await new responseFactory(stream).arrayBuffer());
+                method = 8;
+            } catch {
+                compressed = raw;
+                method = 0;
+            }
+        }
+        if (compressed.byteLength > U32) throw new Error("ZIP entry exceeds ZIP32.");
+        const local = new Uint8Array(30 + nameBytes.length);
+        const lh = new DataView(local.buffer);
+        lh.setUint32(0, 0x04034b50, true);
+        lh.setUint16(4, 20, true);
+        lh.setUint16(6, 0x0800, true);
+        lh.setUint16(8, method, true);
+        lh.setUint16(12, 33, true);
+        lh.setUint32(14, crc32(raw), true);
+        lh.setUint32(18, compressed.byteLength, true);
+        lh.setUint32(22, raw.byteLength, true);
+        lh.setUint16(26, nameBytes.length, true);
+        local.set(nameBytes, 30);
+
+        const central = new Uint8Array(46 + nameBytes.length);
+        const ch = new DataView(central.buffer);
+        ch.setUint32(0, 0x02014b50, true);
+        ch.setUint16(4, 20, true);
+        ch.setUint16(6, 0x0800, true);
+        ch.setUint16(8, method, true);
+        ch.setUint16(12, 33, true);
+        ch.setUint32(16, crc32(raw), true);
+        ch.setUint32(20, compressed.byteLength, true);
+        ch.setUint32(24, raw.byteLength, true);
+        ch.setUint16(28, nameBytes.length, true);
+        ch.setUint32(42, offset, true);
+        central.set(nameBytes, 46);
+        locals.push(local, compressed);
+        centrals.push(central);
+        offset += local.byteLength + compressed.byteLength;
+        if (offset > U32) throw new Error("ZIP32 offset limit exceeded.");
+    }
+    const centralSize = centrals.reduce((n, x) => n + x.byteLength, 0);
+    if (offset + centralSize + 22 > U32) {
+        throw new Error("ZIP32 archive limit exceeded.");
+    }
+    const end = new Uint8Array(22);
+    const e = new DataView(end.buffer);
+    e.setUint32(0, 0x06054b50, true);
+    e.setUint16(8, entries.length, true);
+    e.setUint16(10, entries.length, true);
+    e.setUint32(12, centralSize, true);
+    e.setUint32(16, offset, true);
+    const blob = new Blob([...locals, ...centrals, end], {
+        type: "application/zip"
+    });
+    return {
+        blob, archiveBytes: blob.size,
+        compressionMs: Math.round((now() - started) * 10) / 10
+    };
+}
+
 if (typeof module !== "undefined" && module.exports) {
-    module.exports = { crc32, encodeZipSingleFile, compressJsonAsZipOrPlain };
+    module.exports = { crc32, encodeZipSingleFile, compressJsonAsZipOrPlain, compressFilesToZip };
 }
