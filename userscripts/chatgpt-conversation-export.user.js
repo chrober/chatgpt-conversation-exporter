@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Conversation Exporter
 // @namespace    https://github.com/chrober/chatgpt-conversation-exporter
-// @version      0.3.0-beta.4
+// @version      0.3.0-beta.5
 // @author       Christoph O'Bermair
 // @description  Export the current ChatGPT conversation as JSON.
 // @match        https://chatgpt.com/*
@@ -461,7 +461,7 @@ function createExportProfiler(options = {}) {
         const recordCount = pages.at(-1)?.cumulative_records ?? 0;
         return {
             profile_format: "chatgpt-export-performance-v1",
-            userscript_version: "0.3.0-beta.4",
+            userscript_version: "0.3.0-beta.5",
             created_at: startedAt,
             reported_at: new Date().toISOString(),
             completed,
@@ -909,13 +909,25 @@ function discoverAttachments(messages, maxCount = MAX_ATTACHMENT_COUNT) {
     };
 }
 
-function allowedAttachmentURL(url) {
+function attachmentURLKind(url) {
     try {
         const parsed = new URL(url, "https://chatgpt.com");
-        // Never follow untrusted download links to arbitrary third parties.
-        return parsed.origin === "https://chatgpt.com" &&
-            parsed.pathname.startsWith("/backend-api/");
-    } catch { return false; }
+        if (parsed.protocol !== "https:" || parsed.username ||
+            parsed.password || parsed.hash || parsed.port) return null;
+        if (parsed.hostname === "chatgpt.com" &&
+            parsed.pathname.startsWith("/backend-api/")) return "same-origin";
+        // HAR-confirmed signed media origin. Hostnames vary by region.
+        if (/^[a-z0-9-]+\.oaiusercontent\.com$/i.test(parsed.hostname) &&
+            /^\/files\/[0-9a-f]{8}-[0-9a-f-]{20,}\/raw$/i.test(parsed.pathname) &&
+            parsed.searchParams.has("sig") && parsed.searchParams.has("se")) {
+            return "signed-oaiusercontent";
+        }
+        return null;
+    } catch { return null; }
+}
+
+function allowedAttachmentURL(url) {
+    return attachmentURLKind(url) !== null;
 }
 
 async function readBoundedResponse(response, limit) {
@@ -958,7 +970,19 @@ async function readBoundedResponse(response, limit) {
 }
 
 
-function attachmentMetadataRoutes(item, conversationId) {
+function projectGizmoIdFromSource(sourceUrl, conversationId) {
+    if (typeof conversationId !== "string") return null;
+    try {
+        const url = new URL(sourceUrl);
+        if (url.origin !== "https://chatgpt.com") return null;
+        const match = /^\/g\/(g-p-[a-f0-9]{32})(?:-[^/]*)?\/c\/([a-f0-9-]{36})\/?$/i
+            .exec(url.pathname);
+        return match && match[2].toLowerCase() ===
+            conversationId.toLowerCase() ? match[1] : null;
+    } catch { return null; }
+}
+
+function attachmentMetadataRoutes(item, conversationId, options = {}) {
     if (item.kind === "sandbox") {
         return [{
             label: "interpreter",
@@ -972,17 +996,25 @@ function attachmentMetadataRoutes(item, conversationId) {
     }
     const id = encodeURIComponent(item.identifier);
     const conversation = encodeURIComponent(conversationId);
+    const projectGizmo = typeof options.gizmoId === "string" &&
+        /^g-p-[a-f0-9]{32}$/i.test(options.gizmoId) ?
+        options.gizmoId : null;
+    const projectQuery = projectGizmo ?
+        "?gizmo_id=" + encodeURIComponent(projectGizmo) : "";
     const routes = [
         { label: "files-by-id", url: "/backend-api/files/" + id + "/download" },
         { label: "conversation-attachment", url: "/backend-api/conversation/" +
-            conversation + "/attachment/" + id + "/download" },
+            conversation + "/attachment/" + id + "/download" +
+            projectQuery },
         { label: "files-download", url: "/backend-api/files/download/" + id +
             "?conversation_id=" + conversation + "&inline=false" }
     ];
-    if (item.source === "sediment") {
+    if (item.source === "sediment" ||
+        (projectGizmo && item.source === "metadata-id")) {
+        // In a real project HAR, the conversation-attachment route with
+        // gizmo_id returned HTTP 200 for a metadata-id upload.
         return [routes[1], routes[0], routes[2]];
     }
-    // File service and generic upload metadata typically start here.
     return routes;
 }
 
@@ -1001,11 +1033,11 @@ async function attachmentAuthHeaders(fetchImpl, signal) {
 }
 
 async function resolveDownloadMetadata(item, conversationId, fetchImpl,
-    headers, signal) {
+    headers, signal, context = {}) {
     const tried = [];
     const routeStatuses = [];
     let lastHttp = null;
-    for (const route of attachmentMetadataRoutes(item, conversationId)) {
+    for (const route of attachmentMetadataRoutes(item, conversationId, context)) {
         tried.push(route.label);
         const response = await fetchImpl(route.url, {
             credentials: "include", headers: {
@@ -1081,7 +1113,9 @@ async function collectAttachments(messages, conversationId, options = {}) {
         };
         try {
             const resolution = await resolveDownloadMetadata(
-                item, conversationId, fetchImpl, authHeaders, signal
+                item, conversationId, fetchImpl, authHeaders, signal, {
+                    gizmoId: options.gizmoId
+                }
             );
             itemRecord.resolver_routes_tried = resolution.tried;
             itemRecord.resolver_http_statuses = resolution.routeStatuses;
@@ -1094,9 +1128,16 @@ async function collectAttachments(messages, conversationId, options = {}) {
             if (!url || !allowedAttachmentURL(url)) {
                 throw new Error("no supported same-origin download URL");
             }
-            const response = await fetchImpl(url, {
+            const kind = attachmentURLKind(url);
+            if (!kind) throw new Error("unsupported download URL");
+            const response = await fetchImpl(url, kind === "same-origin" ? {
                 credentials: "include", headers: authHeaders,
                 signal, redirect: "error"
+            } : {
+                // The signed CDN request must not carry browser credentials
+                // or the ChatGPT bearer token across origins.
+                credentials: "omit", mode: "cors", redirect: "error",
+                referrerPolicy: "no-referrer", signal
             });
             if (!response.ok) {
                 throw new Error("file HTTP " + (response.status ?? "error"));
@@ -1150,7 +1191,8 @@ if (typeof module !== "undefined" && module.exports) {
     module.exports = {
         discoverAttachments, collectAttachments,
         fileIdFromPointer, safeSandboxPath, safeAttachmentName,
-        readBoundedResponse, allowedAttachmentURL,
+        readBoundedResponse, allowedAttachmentURL, attachmentURLKind,
+        projectGizmoIdFromSource,
         attachmentMetadataRoutes, attachmentAuthHeaders,
         resolveDownloadMetadata
     };
@@ -1745,6 +1787,9 @@ if (typeof module !== "undefined" && module.exports) {
                     // which authenticated endpoints may be requested.
                     conversationScope: /\/g\/g-p-[^/]+\/c\//.test(
                         new URL(data.source_url).pathname) ? "project" : "unknown",
+                    gizmoId: projectGizmoIdFromSource(
+                        data.source_url, data.conversation_id
+                    ),
                     onProgress: (n, total) => report(
                         "Downloading attachments ...",
                         "Attachment " + n + " of " + total
