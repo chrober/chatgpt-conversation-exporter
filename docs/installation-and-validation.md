@@ -64,17 +64,17 @@ A new browser tab normally loads the durable saved values rather than unsaved ch
 
 ## Experimental file attachments (feature branch only)
 
-**Version 0.3.0-beta.4** adds a default-OFF **Include attachments (experimental)** checkbox below Turns and Delay in the gear panel. Setting the checkbox is session-only until **Save** is clicked. **Load defaults** turns it off; Save after loading defaults makes this choice permanent.
+**Version 0.3.0-beta.5** adds a default-OFF **Include attachments (experimental)** checkbox below Turns and Delay in the gear panel. Setting the checkbox is session-only until **Save** is clicked. **Load defaults** turns it off; Save after loading defaults makes this choice permanent.
 
 Install the [experimental branch build](https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/refs/heads/feat/optional-conversation-attachments/userscripts/chatgpt-conversation-export.user.js) as an **update/replacement** for the existing userscript, not as a second active copy. The published main-branch v0.2.3 remains unaffected.
 
-When enabled, the ZIP includes the unchanged conversation JSON, `attachments-manifest.json`, and zero or more numbered entries under `attachments/`. File references are discovered from structured message attachments/asset pointers and assistant `sandbox:/mnt/data/...` links. The binary fetch is **best effort**, not a completeness guarantee; unavailable and expired files are recorded in the manifest. External signed URLs are deliberately not followed in this first experiment.
+When enabled, the ZIP includes the unchanged conversation JSON, `attachments-manifest.json`, and zero or more numbered entries under `attachments/`. File references are discovered from structured message attachments/asset pointers and assistant `sandbox:/mnt/data/...` links. The binary fetch is **best effort**, not a completeness guarantee; unavailable and expired files are recorded in the manifest. Only carefully validated signed URLs on ChatGPT's `oaiusercontent.com` raw-file CDN are followed without credentials; arbitrary external URLs are still refused.
 
 Files are limited to **100 attempted references**, **50 MiB each**, **200 MiB total**. The archive is still a valid ZIP if DEFLATE is unavailable (with stored/uncompressed entries). Cancelling interrupts both conversation pagination and subsequent file retrieval. A multi-ZIP packaging error triggers a clearly indicated conversation-only fallback. Avoid uploading ZIPs or manifests containing private conversation information to GitHub.
 
 ### Manual Firefox/Tampermonkey acceptance
 
-- [ ] Verify version 0.3.0-beta.4 and that the checkbox defaults to **off** on a new installation.
+- [ ] Verify version 0.3.0-beta.5 and that the checkbox defaults to **off** on a new installation.
 - [ ] The attachment option shows a **visible empty square** to the left of its label, regardless of ChatGPT light/dark theme. Clicking makes it blue with a white checkmark; clicking again clears it. **Tab + Space/Enter** also toggles it, and `aria-checked` follows the visual state.
 - [ ] With checkbox **off**, export a known conversation; ZIP still has exactly one conversation JSON file and its content matches the main-branch export.
 - [ ] Upload a small ordinary file (e.g., a text file or PDF) to a test conversation; enable the checkbox and export. Inspect the manifest; confirm the file is present under `attachments/` and its bytes match the original.
@@ -92,16 +92,35 @@ Files are limited to **100 attempted references**, **50 MiB each**, **200 MiB to
 
 These steps **have not yet been verified with live ChatGPT files**. The download APIs are unofficial and may differ by account or file type.
 
-## Diagnose a 403 without exposing private tokens (beta.4)
+## Diagnosing the original HTTP 403 (beta.4, before HAR evidence)
 
 A user-uploaded 7z file was found, but the `files-by-id` resolver returned HTTP 403. The exporter stops on this response; it cannot infer whether the cause is an unsupported route, a missing workspace context, or restricted file access. **A 403 is not evidence that the original file was deleted.**
 
-1. Update to **v0.3.0-beta.4**, reload the original chat and run the opt-in attachment export once.
+1. Update to **v0.3.0-beta.5**, reload the original chat and run the opt-in attachment export once.
 2. Open `attachments-manifest.json`; inspect only `source`, `reference_keys`, `auth_mode`, `conversation_scope`, `resolver_http_statuses`, `resolved_by` and `error`.
 3. In Firefox **Developer Tools → Network**, enable **Preserve logs** and try the ordinary **ChatGPT UI attachment download** for that same file (if offered). Identify the request associated with that click. Compare the **endpoint path**, **HTTP status**, and **presence/absence** of the `chatgpt-account-id` request-header name with the failed request from the exporter. If the UI download is also denied, the exporter cannot solve an underlying access restriction.
 4. Share **only** redacted endpoint paths and status codes if needed. Never paste a full HAR, `Authorization`, `Cookie`, signed `download_url`, query parameters such as `sig` or `token`, or private file contents.
 
 Some Teams/Project file downloads require a valid project or workspace context; that is documented in third-party projects but **not yet established for this particular upload**. Do not guess account IDs or bypass 401/403 responses by repeatedly probing unrelated endpoints.
+
+## Firefox HAR findings and beta.5 acceptance
+
+The user-supplied HAR (analyzed locally, **not committed**) captured a successful UI-initiated file download in a project conversation:
+
+1. An earlier `/backend-api/files/{file_id}/simple` probe returned **HTTP 404**.
+2. `/backend-api/conversation/{conversation_id}/attachment/{file_id}/download?gizmo_id={project_id}` returned **HTTP 200** with JSON containing a short-lived signed `download_url`.
+3. A request to a regional `*.oaiusercontent.com/files/{uuid}/raw` URL returned **HTTP 200** with the binary.
+
+The metadata request also included Bearer authentication and a `ChatGPT-Account-Id` header. The experimental exporter uses its existing session authentication, derives the project gizmo ID from the original ChatGPT conversation URL, and allows the signed CDN URL **without forwarding credentials**. It does not manufacture missing account headers. The target CDN response in the HAR permitted cross-origin access, but browser-based code still requires a manual CORS/Download smoke test.
+
+- [ ] Update to **v0.3.0-beta.5** and re-export the same chat with attachments enabled.
+- [ ] Confirm that a `metadata-id` upload in a project tries `conversation-attachment` **first**, with a valid `gizmo_id` parameter.
+- [ ] If metadata resolves, confirm that the signed `oaiusercontent.com` URL downloads the original bytes without carrying Bearer or cookies.
+- [ ] Compare the downloaded file's checksum/size to a file downloaded directly from ChatGPT; inspect `attachments-manifest.json` for `status: downloaded` and the resolver path.
+- [ ] If it fails, share only safe manifest diagnostic fields, notably `resolver_routes_tried`, `resolver_http_statuses` and `error`. If the metadata call still returns **403**, investigate the legitimate account-context header instead of probing more endpoints.
+- [ ] Check that the ordinary conversation JSON and its offline equality comparator remain valid, even when a file fails.
+
+**Security: Never share an unredacted HAR.** It can include live session cookies, authorization tokens and signed download URLs. After accidental exposure, revoke the affected active sessions through ChatGPT security settings and log back in. Do not add HAR files to GitHub or tests.
 
 ## Validate two exports offline
 
