@@ -2,7 +2,7 @@
 
 A standalone **Tampermonkey/Greasemonkey userscript** that exports **one currently open, original ChatGPT conversation** as JSON. It is not an account-wide export, and it never starts an export automatically on page load.
 
-> **Version 0.3.0-beta.4 (attachment experiment, feature branch only).** The exporter and its pagination flow have been used with Firefox and Tampermonkey. Automated tests cover the current implementation; verify new UI styling and browser-specific download behavior in your own browser. The internal ChatGPT API is undocumented and may change without notice.
+> **Version 0.3.0-beta.5 (attachment experiment, feature branch only).** The exporter and its pagination flow have been used with Firefox and Tampermonkey. Automated tests cover the current implementation; verify new UI styling and browser-specific download behavior in your own browser. The internal ChatGPT API is undocumented and may change without notice.
 
 ## Install and use
 
@@ -48,7 +48,7 @@ Changing a valid value updates the **next** export immediately, but is **session
 
 To measure a fresh HTTP export with the *same* settings, **reload the ChatGPT tab** first. Otherwise a completed in-memory session can generate another ZIP without fetching messages again.
 
-## Experimental optional attachment export (v0.3.0-beta.4)
+## Experimental optional attachment export (v0.3.0-beta.5)
 
 The attachment toggle is a **custom visibly drawn square checkbox** with a clear checkmark rather than a native `<input type="checkbox">`. This avoids ChatGPT's global form CSS hiding the control. It is still keyboard accessible (**Tab**, **Space/Enter**) and exposes `role="checkbox"` / `aria-checked` for assistive technologies.
 
@@ -69,12 +69,14 @@ The entries under `attachments/` are only present for files that actually downlo
 
 **Beta.4 diagnosis after a real 403:** The first metadata resolver returned **HTTP 403** for a user-uploaded 7z archive whose only recognized reference was `metadata-id`. This is *not* proof that the file has been deleted or that it cannot be downloaded through the browser. The exporter still **stops on 401/403**, rather than probing further routes after an explicit denial. The manifest now records only safe information: `reference_keys` (field names of the attachment metadata, never their values), `auth_mode` (cookies-only vs. bearer-plus-cookies), `conversation_scope` (project vs. unknown), and `resolver_http_statuses` (route names and status numbers). Identifiers, signed URLs, tokens, and response bodies are not copied into these diagnostic fields. This release **does not claim that the 403 is fixed**. The next step is to compare a legitimate download request triggered by the ChatGPT UI with the exporter's route and headers (redact query parameters, tokens and cookies before sharing).
 
+**Beta.5: evidence-based download fix.** A November 2 Firefox HAR of a successful **ChatGPT UI** file download established a two-step sequence. For a file in a project conversation, ChatGPT used `GET /backend-api/conversation/{conversation_id}/attachment/{file_id}/download?gizmo_id={project_id}` and received JSON containing a time-limited signed `download_url`. The file bytes were retrieved with a separate HTTPS GET from a regional `*.oaiusercontent.com/files/{uuid}/raw` host. The Userscript now extracts the validated project ID from the existing conversation URL, prioritizes that **conversation-attachment** resolver for project uploads represented by `metadata-id`, and accepts **only** tightly validated signed `oaiusercontent.com` raw-file URLs as an additional download destination. The CDN fetch explicitly uses `credentials: "omit"` and never forwards the ChatGPT Bearer token, cookies, or account headers. Same-origin requests still use the signed-in browser context. Both requests are read-only. All signed URL values remain absent from manifests and logs. The HAR did also contain a `ChatGPT-Account-Id` header; the script does not invent this value. **This is validated against synthetic HAR-shaped tests, not yet with the affected attachment.**
+
 **Supported discovery (best effort):**
 
 - File IDs in structured message attachments, image asset pointers and other file metadata, resolved via an undocumented ChatGPT file-download endpoint.
 - Assistant-authored `sandbox:/mnt/data/...` links and structured sandbox paths, resolved via an undocumented interpreter download endpoint.
 
-**Not guaranteed:** every generated image, linked file, Project/Library file, deleted/expired file, externally hosted attachment or agent output. The exporter cannot reconstruct a binary just from a filename or sandbox link. External signed download URLs are **not followed** in this initial version: only `https://chatgpt.com/backend-api/...` is permitted. Unsupported or expired references are recorded as failures rather than silently omitted.
+**Not guaranteed:** every generated image, linked file, Project/Library file, deleted/expired file, externally hosted attachment or agent output. The exporter cannot reconstruct a binary just from a filename or sandbox link. Only signed HTTPS URLs on a constrained `*.oaiusercontent.com/files/{uuid}/raw` path are allowed cross-origin; arbitrary external URLs remain prohibited. Unsupported or expired references are recorded as failures rather than silently omitted.
 
 **Safety limits:** maximum 100 distinct references attempted, 50 MiB per file and 200 MiB combined downloaded attachment data. This protects browser memory; skipped references are reported. Downloads are sequential and cancelable. Archive entries are sanitized and numbered to prevent path traversal and name collisions.
 
