@@ -587,6 +587,9 @@
                     // which authenticated endpoints may be requested.
                     conversationScope: /\/g\/g-p-[^/]+\/c\//.test(
                         new URL(data.source_url).pathname) ? "project" : "unknown",
+                    gizmoId: projectGizmoIdFromSource(
+                        data.source_url, data.conversation_id
+                    ),
                     onProgress: (n, total) => report(
                         "Downloading attachments ...",
                         "Attachment " + n + " of " + total
