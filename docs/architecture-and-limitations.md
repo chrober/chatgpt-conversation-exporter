@@ -124,7 +124,7 @@ Download resolution is split by reference type:
 
 1. File IDs: `GET /backend-api/files/download/{file_id}?conversation_id={conversation_id}&inline=false` (expected JSON with a temporary `download_url`).
 2. Assistant sandbox files: `GET /backend-api/conversation/{conversation_id}/interpreter/download?message_id={message_id}&sandbox_path=...` (expected JSON with a temporary `download_url`).
-3. Fetch the resulting binary URL **only** if it is on `https://chatgpt.com/backend-api/...`; forbid untrusted cross-origin redirects. No arbitrary user/assistant-supplied external URL is fetched; only validated signed regional `oaiusercontent.com` raw-file URLs returned by the authenticated ChatGPT metadata API are accepted.
+3. Fetch the binary only from `https://chatgpt.com/backend-api/...` or a narrowly validated, signed HTTPS `*.oaiusercontent.com/files/{uuid}/raw` URL returned by the authenticated metadata endpoint. For the signed CDN, omit cookies and authorization headers entirely. Never follow untrusted cross-origin redirects or arbitrary user-supplied URLs.
 
 These routes are **undocumented**, may be unavailable for some accounts, and are **not yet proven against live ChatGPT user or agent uploads**. An output containing only a path or expired pointer cannot be reconstructed from the text alone. Signed raw file URLs on validated regional `oaiusercontent.com` hosts are supported; unrelated third-party URLs remain unsupported and are reported as failures.
 
