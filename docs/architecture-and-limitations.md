@@ -110,7 +110,7 @@ This is an **illustrative schema**, not a realistic completed export. `page_meta
 
 `pagination_verified: true` means **the backend reported the end of the fetched older-page chain**. It does not prove that all historical versions, alternative branches, or external attachments were captured. `attachments_fetched_separately` is always `false`.
 
-## Optional attachments (experimental v0.3.0-beta.5)
+## Optional attachments (v0.3.0; best effort)
 
 The attachment selection is rendered as a **custom 18×18 pixel visual checkbox** using a native `button` with `role="checkbox"`, a dynamic `aria-checked` attribute and a hand-drawn SVG tick. No browser-native checkbox appearance is used, avoiding style resets by ChatGPT's global CSS. Tab and Space/Enter retain keyboard accessibility.
 
@@ -126,7 +126,7 @@ Download resolution is split by reference type:
 2. Assistant sandbox files: `GET /backend-api/conversation/{conversation_id}/interpreter/download?message_id={message_id}&sandbox_path=...` (expected JSON with a temporary `download_url`).
 3. Fetch the binary only from `https://chatgpt.com/backend-api/...` or a narrowly validated, signed HTTPS `*.oaiusercontent.com/files/{uuid}/raw` URL returned by the authenticated metadata endpoint. For the signed CDN, omit cookies and authorization headers entirely. Never follow untrusted cross-origin redirects or arbitrary user-supplied URLs.
 
-These routes are **undocumented**, may be unavailable for some accounts, and are **not yet proven against live ChatGPT user or agent uploads**. An output containing only a path or expired pointer cannot be reconstructed from the text alone. Signed raw file URLs on validated regional `oaiusercontent.com` hosts are supported; unrelated third-party URLs remain unsupported and are reported as failures.
+These routes are **undocumented** and may be unavailable for some accounts. **A real user-uploaded 7z file in a project conversation was successfully downloaded with the project-aware flow in Firefox/Tampermonkey; assistant-generated files and other upload types are not yet proven.** An output containing only a path or expired pointer cannot be reconstructed from the text alone. Signed raw file URLs on validated regional `oaiusercontent.com` hosts are supported; unrelated third-party URLs remain unsupported and are reported as failures.
 
 Safety limits: at most **100** distinct references attempted, **50 MiB** per file and **200 MiB** total downloaded. Bounded stream reading prevents unbounded memory consumption for streaming responses. Downloads are sequential, abortable and report failures individually. Filenames are flattened, sanitized and numbered to avoid archive path traversal/collisions. The manifest does **not** store signed URLs or access tokens; it **does** store originating message IDs, file names and other private metadata, so the ZIP must remain private.
 
@@ -159,7 +159,7 @@ For uploads discovered only through a metadata `id`, the exporter **prefers the 
 
 The resolver's returned `download_url` is permitted only on `https://chatgpt.com/backend-api/...` or on an HTTPS regional subdomain of `oaiusercontent.com` with a signed `/files/{uuid}/raw` path. Arbitrary external hosts, HTTP, unknown paths, credentials in URLs and redirects remain disallowed. **Cross-origin CDN fetches explicitly set `credentials: "omit"` and do not pass Bearer, cookies or account headers.** The signed URL is used only for the live request and is never copied to the manifest or logs. MIME type is not trusted; the binary is read as bytes with strict per-file and aggregate size bounds.
 
-This is a design and synthetic-test result; the original reported attachment **still requires a browser validation run**. The official request contained a `ChatGPT-Account-Id` header, but this value is not derived from the HAR or embedded in the exporter. A remaining HTTP 403 may indicate missing legitimate account context or permissions rather than an invalid URL.
+The original reported user-uploaded 7z attachment was subsequently **successfully downloaded with the userscript in Firefox/Tampermonkey**, validating this specific project-aware flow beyond synthetic tests. The official UI request contained a `ChatGPT-Account-Id` header, but that value is not extracted from the HAR or embedded in the exporter. Other accounts, file services and agent outputs still require validation. A future 403 may indicate a legitimate access restriction rather than an invalid URL.
 
 ## ZIP packaging
 
@@ -181,7 +181,7 @@ For a local **conversation-content** integrity comparison of two complete ZIP/JS
 
 ## Security and operational limitations
 
-- Match scope is `https://chatgpt.com/*`; requests remain on the ChatGPT origin.
+- The userscript runs on `https://chatgpt.com/*`; API requests remain on the ChatGPT origin. Optional attachment binary fetches may use strictly validated signed `*.oaiusercontent.com` HTTPS CDN URLs with credentials omitted.
 - No export begins on page load: a click or userscript-manager menu action is required.
 - If the conversation changes mid-export, further collection stops to prevent mixing chats.
 - Validated pages survive cancellation/temporary failures **only in the same tab's RAM**. Reload loses the page cache.
