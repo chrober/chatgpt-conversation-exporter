@@ -1,5 +1,8 @@
 "use strict";
 
+// Single runtime version shared by the settings UI and performance reports.
+const USERSCRIPT_VERSION = "0.3.1";
+
 /**
  * Local-only, content-free performance profiling.
  * No chat identifiers, URLs, cursors, tokens, headers or message bodies.
@@ -147,7 +150,7 @@ function createExportProfiler(options = {}) {
         const recordCount = pages.at(-1)?.cumulative_records ?? 0;
         return {
             profile_format: "chatgpt-export-performance-v1",
-            userscript_version: "0.3.0",
+            userscript_version: USERSCRIPT_VERSION,
             created_at: startedAt,
             reported_at: new Date().toISOString(),
             completed,
