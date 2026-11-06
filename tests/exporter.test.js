@@ -457,8 +457,14 @@ function makeExportUiHarness(storage = null, useAsyncStorage = false,
     ), "utf8");
     const elements = [];
     const pending = [];
+    const downloads = [];
+    const blobUrls = new Map();
     const urls = class extends URL {};
-    urls.createObjectURL = () => "blob:mock";
+    urls.createObjectURL = blob => {
+        const id = "blob:mock-" + blobUrls.size;
+        blobUrls.set(id, blob);
+        return id;
+    };
     urls.revokeObjectURL = () => {};
     let messageRequests = 0;
     const messageUrls = [];
@@ -478,6 +484,7 @@ function makeExportUiHarness(storage = null, useAsyncStorage = false,
             disabled: false,
             isConnected: false,
             setAttribute(name, value) { this.attributes[name] = value; },
+            getAttribute(name) { return this.attributes[name] ?? null; },
             addEventListener(name, cb) { this.listeners[name] = cb; },
             appendChild(child) {
                 this.children.push(child);
@@ -485,7 +492,14 @@ function makeExportUiHarness(storage = null, useAsyncStorage = false,
                 setConnected(child, this.isConnected);
             },
             remove() { setConnected(this, false); },
-            click() {}
+            click() {
+                if (this.tagName === "a") {
+                    downloads.push({
+                        filename: this.download,
+                        blob: blobUrls.get(this.href)
+                    });
+                }
+            }
         };
         elements.push(item);
         return item;
@@ -560,6 +574,12 @@ function makeExportUiHarness(storage = null, useAsyncStorage = false,
         document.getElementById("chatgpt-conversation-export-include-attachments");
     const versionLabel = () =>
         document.getElementById("chatgpt-conversation-export-version");
+    const diagnosticsToggle = () =>
+        document.getElementById("chatgpt-conversation-export-diagnostics-toggle");
+    const diagnosticsContent = () =>
+        document.getElementById("chatgpt-conversation-export-diagnostics-content");
+    const diagnosticsDownload = () =>
+        document.getElementById("chatgpt-conversation-export-download-diagnostics");
     const findButton = name => elements.filter(e =>
         e.tagName === "button" && e.textContent === name && e.isConnected
     ).at(-1);
@@ -569,7 +589,10 @@ function makeExportUiHarness(storage = null, useAsyncStorage = false,
     const settle = () => new Promise(resolve => setImmediate(resolve));
     return {
         launcher, spinner, pending, findButton, modeButton, toolbar, customTurns,
-        customDelay, attachmentInput, versionLabel, visiblePanel, settle, browserSession, messageUrls,
+        customDelay, attachmentInput, versionLabel,
+        diagnosticsToggle, diagnosticsContent, diagnosticsDownload,
+        visiblePanel, settle, browserSession, messageUrls, downloads,
+        location: globals.window.location,
         get messageRequests() { return messageRequests; }
     };
 }
@@ -636,7 +659,7 @@ test("reopening a dismissed running export restores progress and enabled Cancel"
     assert.match(progress.textContent, /1 API pages, 1 message records/);
     assert.equal(ui.messageRequests, 2);
 
-    // Completion after reopening must replace Cancel with the profile action.
+    // Completion after reopening hides Cancel. The report is only in Settings.
     ui.pending[1](ok(page([msg("n1")], "cursor-oldest", false)));
     await ui.settle();
     await ui.settle();
