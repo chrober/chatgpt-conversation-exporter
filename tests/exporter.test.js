@@ -334,20 +334,21 @@ test("profiling reports an interrupted export as incomplete and never saves auto
     assert.equal(profile.summary.message_http_attempts, 0);
 });
 
-test("generated UI uses bottom-right launcher and a separate performance report action", () => {
+test("generated UI uses bottom-right launcher and a settings-only diagnostics action", () => {
     const entry = fs.readFileSync(path.join(__dirname, "../src/userscript-entry.js"), "utf8");
     assert.match(entry, /button\.textContent = "Export chat as JSON"/);
     assert.match(entry, /right: "18px"/);
     assert.doesNotMatch(entry, /left: "18px"/);
     assert.match(entry, /bottom: "68px"/);
-    assert.match(entry, /Save performance report/);
+    assert.match(entry, /Download performance report/);
+    assert.doesNotMatch(entry, /makeButton\("Save performance report"/);
     assert.match(entry, /API pages/);
     assert.match(entry, /state\.profiler\.noteDownload\(result\)/);
     assert.match(entry, /state\.profiler\.report\(\)/);
 });
 
 
-test("Cancel is replaced by Save performance report on completion", async () => {
+test("Cancel is hidden on completion and the progress panel contains only Close", async () => {
     const code = fs.readFileSync(path.join(
         __dirname, "../userscripts/chatgpt-conversation-export.user.js"
     ), "utf8");
@@ -442,11 +443,11 @@ test("Cancel is replaced by Save performance report on completion", async () => 
         e.textContent === "Export complete – JSON download started."
     ));
     const profileAction = elements.find(e =>
-        e.textContent === "Save performance report"
+        e.textContent === "Save performance report" ||
+        e.textContent === "Download performance report"
     );
-    assert.ok(profileAction);
-    assert.equal(profileAction.hidden, false);
-    assert.equal(profileAction.style.display, "");
+    assert.equal(profileAction, undefined);
+    assert.ok(elements.some(e => e.textContent === "Close"));
 });
 
 
@@ -457,8 +458,14 @@ function makeExportUiHarness(storage = null, useAsyncStorage = false,
     ), "utf8");
     const elements = [];
     const pending = [];
+    const downloads = [];
+    const blobUrls = new Map();
     const urls = class extends URL {};
-    urls.createObjectURL = () => "blob:mock";
+    urls.createObjectURL = blob => {
+        const id = "blob:mock-" + blobUrls.size;
+        blobUrls.set(id, blob);
+        return id;
+    };
     urls.revokeObjectURL = () => {};
     let messageRequests = 0;
     const messageUrls = [];
@@ -478,6 +485,7 @@ function makeExportUiHarness(storage = null, useAsyncStorage = false,
             disabled: false,
             isConnected: false,
             setAttribute(name, value) { this.attributes[name] = value; },
+            getAttribute(name) { return this.attributes[name] ?? null; },
             addEventListener(name, cb) { this.listeners[name] = cb; },
             appendChild(child) {
                 this.children.push(child);
@@ -485,7 +493,14 @@ function makeExportUiHarness(storage = null, useAsyncStorage = false,
                 setConnected(child, this.isConnected);
             },
             remove() { setConnected(this, false); },
-            click() {}
+            click() {
+                if (this.tagName === "a") {
+                    downloads.push({
+                        filename: this.download,
+                        blob: blobUrls.get(this.href)
+                    });
+                }
+            }
         };
         elements.push(item);
         return item;
@@ -560,6 +575,12 @@ function makeExportUiHarness(storage = null, useAsyncStorage = false,
         document.getElementById("chatgpt-conversation-export-include-attachments");
     const versionLabel = () =>
         document.getElementById("chatgpt-conversation-export-version");
+    const diagnosticsToggle = () =>
+        document.getElementById("chatgpt-conversation-export-diagnostics-toggle");
+    const diagnosticsContent = () =>
+        document.getElementById("chatgpt-conversation-export-diagnostics-content");
+    const diagnosticsDownload = () =>
+        document.getElementById("chatgpt-conversation-export-download-diagnostics");
     const findButton = name => elements.filter(e =>
         e.tagName === "button" && e.textContent === name && e.isConnected
     ).at(-1);
@@ -569,7 +590,10 @@ function makeExportUiHarness(storage = null, useAsyncStorage = false,
     const settle = () => new Promise(resolve => setImmediate(resolve));
     return {
         launcher, spinner, pending, findButton, modeButton, toolbar, customTurns,
-        customDelay, attachmentInput, versionLabel, visiblePanel, settle, browserSession, messageUrls,
+        customDelay, attachmentInput, versionLabel,
+        diagnosticsToggle, diagnosticsContent, diagnosticsDownload,
+        visiblePanel, settle, browserSession, messageUrls, downloads,
+        location: globals.window.location,
         get messageRequests() { return messageRequests; }
     };
 }
@@ -636,13 +660,13 @@ test("reopening a dismissed running export restores progress and enabled Cancel"
     assert.match(progress.textContent, /1 API pages, 1 message records/);
     assert.equal(ui.messageRequests, 2);
 
-    // Completion after reopening must replace Cancel with the profile action.
+    // Completion after reopening hides Cancel. The report is only in Settings.
     ui.pending[1](ok(page([msg("n1")], "cursor-oldest", false)));
     await ui.settle();
     await ui.settle();
     assert.equal(cancel.hidden, true);
     assert.equal(cancel.style.display, "none");
-    assert.equal(ui.findButton("Save performance report").hidden, false);
+    assert.equal(ui.findButton("Save performance report"), undefined);
 });
 
 
@@ -699,45 +723,62 @@ test("missing CompressionStream saves honest plain JSON fallback", async () => {
     assert.equal(await result.blob.text(), source);
 });
 
-test("performance report action is hidden until the export settles successfully", async () => {
+test("settings diagnostics are collapsed and download is enabled after success", async () => {
     const ui = makeExportUiHarness();
+    await ui.settle();
+    ui.modeButton().listeners.click();
+    assert.equal(ui.diagnosticsToggle().attributes["aria-expanded"], "false");
+    assert.equal(ui.diagnosticsContent().hidden, true);
+    assert.equal(ui.diagnosticsContent().style.display, "none");
+    assert.equal(ui.diagnosticsDownload().disabled, true);
+    ui.diagnosticsToggle().listeners.click();
+    assert.equal(ui.diagnosticsToggle().attributes["aria-expanded"], "true");
+    assert.equal(ui.diagnosticsContent().style.display, "block");
+    assert.equal(ui.diagnosticsDownload().disabled, true);
     ui.launcher.listeners.click();
     await ui.settle();
-    const performance = ui.findButton("Save performance report");
-    assert.ok(performance);
-    const cancel = ui.findButton("Cancel");
-    assert.equal(cancel.hidden, false);
-    assert.equal(cancel.style.display, "");
-    assert.equal(performance.hidden, true);
-    assert.equal(performance.style.display, "none");
-
+    assert.equal(ui.diagnosticsDownload(), null);
+    assert.equal(ui.findButton("Cancel").hidden, false);
+    assert.equal(ui.findButton("Save performance report"), undefined);
     ui.pending[0](ok(page([msg("single")], "cursor-end", false)));
     await ui.settle();
     await ui.settle();
-    assert.equal(performance.hidden, false);
-    assert.equal(performance.style.display, "");
-    assert.equal(performance.disabled, false);
-    assert.equal(cancel.hidden, true);
-    assert.equal(cancel.style.display, "none");
+    assert.equal(ui.findButton("Cancel").hidden, true);
+    ui.modeButton().listeners.click();
+    assert.equal(ui.diagnosticsToggle().attributes["aria-expanded"], "false");
+    ui.diagnosticsToggle().listeners.click();
+    assert.equal(ui.diagnosticsDownload().disabled, false);
+    const count = ui.downloads.length;
+    ui.diagnosticsDownload().listeners.click();
+    assert.equal(ui.downloads.length, count + 1);
+    assert.match(ui.downloads.at(-1).filename, /^chatgpt-export-performance-.+\.json$/);
+    const report = JSON.parse(await ui.downloads.at(-1).blob.text());
+    assert.equal(report.profile_format, "chatgpt-export-performance-v1");
+    assert.equal(report.summary.message_records, 1);
+    assert.equal(report.completed, true);
 });
 
-test("performance report action appears after export error without completed pages", async () => {
+test("diagnostics report survives an HTTP error without completed pages", async () => {
     const ui = makeExportUiHarness();
     ui.launcher.listeners.click();
     await ui.settle();
-    const performance = ui.findButton("Save performance report");
-    const cancel = ui.findButton("Cancel");
-    assert.equal(cancel.hidden, false);
-    assert.equal(performance.hidden, true);
+    assert.equal(ui.findButton("Cancel").hidden, false);
     ui.pending[0]({ ok: false, status: 403 });
     await ui.settle();
     await ui.settle();
-    assert.equal(performance.hidden, false);
-    assert.equal(performance.disabled, false);
-    assert.equal(cancel.hidden, true);
-    assert.equal(cancel.style.display, "none");
+    assert.equal(ui.findButton("Cancel").hidden, true);
+    assert.equal(ui.findButton("Save performance report"), undefined);
+    ui.findButton("Close").listeners.click();
+    assert.equal(ui.visiblePanel(), null);
+    ui.modeButton().listeners.click();
+    ui.diagnosticsToggle().listeners.click();
+    assert.equal(ui.diagnosticsDownload().disabled, false);
+    ui.diagnosticsDownload().listeners.click();
+    const report = JSON.parse(await ui.downloads.at(-1).blob.text());
+    assert.equal(report.summary.api_pages_completed, 0);
+    assert.equal(report.summary.request_status_counts["403"], 1);
+    assert.equal(report.completed, false);
 });
-
 
 test("launcher spinner remains active with progress panel closed and resets on success", async () => {
     const ui = makeExportUiHarness();
@@ -797,12 +838,12 @@ test("launcher spinner resets on HTTP error and when export is restarted", async
     await ui.settle();
     assert.equal(ui.spinner.style.display, "none");
     assert.equal(ui.launcher.attributes["aria-busy"], "false");
-    assert.equal(ui.findButton("Save performance report").hidden, false);
+    assert.equal(ui.findButton("Save performance report"), undefined);
     assert.equal(ui.findButton("Cancel").hidden, true);
 
     ui.launcher.listeners.click();
     await ui.settle();
-    assert.equal(ui.findButton("Save performance report").hidden, true);
+    assert.equal(ui.findButton("Save performance report"), undefined);
     assert.equal(ui.findButton("Cancel").hidden, false);
     assert.equal(ui.spinner.style.display, "inline-flex");
     assert.equal(ui.messageRequests, 2);
@@ -836,52 +877,53 @@ test("launcher spinner stops after user cancellation even when panel was dismiss
 });
 
 
-test("Cancel is replaced by Save performance report after user cancellation", async () => {
+test("cancel leaves only Close in progress and diagnostics retain metrics", async () => {
     const ui = makeExportUiHarness();
     ui.launcher.listeners.click();
     await ui.settle();
     const cancel = ui.findButton("Cancel");
-    const performance = ui.findButton("Save performance report");
     assert.equal(cancel.hidden, false);
-    assert.equal(performance.hidden, true);
-
+    assert.equal(ui.findButton("Save performance report"), undefined);
     cancel.listeners.click();
     ui.pending[0](ok(page([msg("interrupted")], "cursor-end", false)));
     await ui.settle();
     await ui.settle();
-
     assert.equal(cancel.hidden, true);
     assert.equal(cancel.style.display, "none");
-    assert.equal(performance.hidden, false);
-    assert.equal(performance.style.display, "");
-    assert.equal(performance.disabled, false);
+    assert.equal(ui.findButton("Save performance report"), undefined);
+    ui.modeButton().listeners.click();
+    ui.diagnosticsToggle().listeners.click();
+    assert.equal(ui.diagnosticsDownload().disabled, false);
+    ui.diagnosticsDownload().listeners.click();
+    const report = JSON.parse(await ui.downloads.at(-1).blob.text());
+    assert.equal(report.completed, false);
+    assert.ok(report.summary.message_http_attempts > 0);
 });
 
-test("reopened running export retains Cancel and keeps performance report hidden", async () => {
+test("reopened running export keeps Cancel and diagnostics disabled", async () => {
     const ui = makeExportUiHarness();
     ui.launcher.listeners.click();
     await ui.settle();
     ui.findButton("Close").listeners.click();
     assert.equal(ui.visiblePanel(), null);
-
     ui.launcher.listeners.click();
-    const panel = ui.visiblePanel();
-    assert.ok(panel);
+    assert.ok(ui.visiblePanel());
     const cancel = ui.findButton("Cancel");
-    const performance = ui.findButton("Save performance report");
     assert.equal(cancel.hidden, false);
     assert.equal(cancel.disabled, false);
-    assert.equal(performance.hidden, true);
-    assert.equal(performance.style.display, "none");
+    assert.equal(ui.findButton("Save performance report"), undefined);
     assert.equal(ui.messageRequests, 1);
-
+    ui.modeButton().listeners.click();
+    ui.diagnosticsToggle().listeners.click();
+    assert.equal(ui.diagnosticsDownload().disabled, true);
+    ui.diagnosticsDownload().listeners.click();
+    assert.equal(ui.downloads.length, 0);
     ui.pending[0]({ ok: false, status: 403 });
     await ui.settle();
     await ui.settle();
     assert.equal(cancel.hidden, true);
-    assert.equal(performance.hidden, false);
+    assert.equal(ui.diagnosticsDownload().disabled, false);
 });
-
 
 test("two-turn batches reduce requests while retaining cursor order and validated output", async () => {
     const urls = [];
@@ -956,7 +998,7 @@ test("rate limiting never triggers batch-size downgrade", async () => {
     assert.equal(exporter.snapshot().fallbackCount, 0);
 });
 
-test("completed export re-run after Close leaves no greyed-out Cancel button", async () => {
+test("completed export re-run after Close retains only Close and report stays available", async () => {
     const ui = makeExportUiHarness();
     ui.launcher.listeners.click();
     await ui.settle();
@@ -964,27 +1006,22 @@ test("completed export re-run after Close leaves no greyed-out Cancel button", a
     await ui.settle();
     await ui.settle();
     assert.equal(ui.findButton("Cancel").hidden, true);
-    assert.equal(ui.findButton("Save performance report").hidden, false);
-
+    assert.equal(ui.findButton("Save performance report"), undefined);
     ui.findButton("Close").listeners.click();
     assert.equal(ui.visiblePanel(), null);
     ui.launcher.listeners.click();
     await ui.settle();
     await ui.settle();
-
     assert.equal(ui.messageRequests, 1, "completed session should not refetch backend");
     assert.ok(ui.visiblePanel());
-    const cancel = ui.findButton("Cancel");
-    assert.ok(cancel);
-    assert.equal(cancel.hidden, true);
-    assert.equal(cancel.style.display, "none");
-    const save = ui.findButton("Save performance report");
-    assert.equal(save.hidden, false);
-    assert.equal(save.style.display, "");
+    assert.equal(ui.findButton("Cancel").hidden, true);
+    assert.equal(ui.findButton("Cancel").style.display, "none");
+    assert.equal(ui.findButton("Save performance report"), undefined);
     assert.equal(ui.spinner.style.display, "none");
-    assert.equal(ui.launcher.attributes["aria-busy"], "false");
+    ui.modeButton().listeners.click();
+    ui.diagnosticsToggle().listeners.click();
+    assert.equal(ui.diagnosticsDownload().disabled, false);
 });
-
 
 test("performance diagnostics track batch sizes and pacing without retaining any URL or cursor", async () => {
     const { createExportProfiler } = require("../src/profiling.js");
@@ -1055,7 +1092,7 @@ test("v0.2.0 compact launcher has an adjacent gear and only two numeric settings
     assert.equal(svg.children[0].attributes["fill-rule"], "evenodd");
     assert.match(svg.children[0].attributes.d, /M 15 12 A 3 3/);
     assert.equal(settings.attributes["aria-label"],
-        "Export performance settings");
+        "Export settings");
     ui.modeButton().listeners.click();
     assert.equal(ui.customTurns().value, "3");
     assert.equal(ui.customDelay().value, "100");
@@ -1457,27 +1494,27 @@ test("settings show a non-experimental attachment label and subtle installed ver
         child => /experimental/i.test(child.textContent || "")));
     const version = ui.versionLabel();
     assert.ok(version);
-    assert.equal(version.textContent, "v0.3.2");
-    assert.equal(version.attributes["aria-label"], "Exporter version 0.3.2");
+    assert.equal(version.textContent, "v0.3.3");
+    assert.equal(version.attributes["aria-label"], "Exporter version 0.3.3");
     assert.equal(version.style.fontSize, "10px");
     assert.equal(version.style.textAlign, "right");
     assert.equal(version.style.color, "#9ca9bb");
     assert.equal(version.style.marginTop, "7px");
     checkbox.listeners.click();
     assert.equal(checkbox.attributes["aria-checked"], "true");
-    assert.equal(ui.versionLabel().textContent, "v0.3.2");
+    assert.equal(ui.versionLabel().textContent, "v0.3.3");
     ui.modeButton().listeners.click();
     assert.equal(ui.versionLabel(), null);
     ui.modeButton().listeners.click();
-    assert.equal(ui.versionLabel().textContent, "v0.3.2");
+    assert.equal(ui.versionLabel().textContent, "v0.3.3");
 });
 
 test("version in settings matches build metadata, package and performance report", () => {
     const packageVersion = require("../package.json").version;
     const source = fs.readFileSync(path.join(__dirname, "../src/profiling.js"), "utf8");
     const bundler = fs.readFileSync(path.join(__dirname, "../scripts/build-userscript.js"), "utf8");
-    assert.equal(packageVersion, "0.3.2");
-    assert.match(source, /const USERSCRIPT_VERSION = "0\.3\.2";/);
+    assert.equal(packageVersion, "0.3.3");
+    assert.match(source, /const USERSCRIPT_VERSION = "0\.3\.3";/);
     assert.match(source, /userscript_version: USERSCRIPT_VERSION/);
     assert.ok(bundler.includes('"// @version      " + version'));
     const { createExportProfiler } = require("../src/profiling.js");
@@ -1525,4 +1562,66 @@ test("update metadata defines required unique tags without executable code", () 
     assert.equal(lines[0], "// ==UserScript==");
     assert.equal(lines.at(-2), "// ==/UserScript==");
     assert.ok(lines.every(x => !x || x.startsWith("// ")));
+});
+
+
+test("diagnostics disclosure is transient and does not change saved export settings", async () => {
+    const saved = new Map();
+    const tab = new Map();
+    const ui = makeExportUiHarness(saved, false, tab);
+    await ui.settle();
+    ui.modeButton().listeners.click();
+    const disclose = ui.diagnosticsToggle();
+    assert.equal(disclose.type, "button");
+    assert.equal(disclose.attributes["aria-controls"],
+        "chatgpt-conversation-export-diagnostics-content");
+    assert.equal(disclose.attributes["aria-expanded"], "false");
+    disclose.listeners.click();
+    assert.equal(disclose.attributes["aria-expanded"], "true");
+    assert.equal(ui.diagnosticsContent().hidden, false);
+    disclose.listeners.click();
+    assert.equal(disclose.attributes["aria-expanded"], "false");
+    assert.equal(ui.diagnosticsContent().hidden, true);
+    assert.equal(ui.diagnosticsContent().style.display, "none");
+    assert.equal(ui.diagnosticsDownload().disabled, true);
+    assert.equal(saved.size, 0);
+    assert.equal(tab.size, 0);
+    ui.modeButton().listeners.click();
+    assert.equal(ui.diagnosticsToggle(), null);
+    ui.modeButton().listeners.click();
+    assert.equal(ui.diagnosticsToggle().attributes["aria-expanded"], "false");
+    assert.equal(ui.versionLabel().textContent, "v0.3.3");
+});
+
+test("diagnostics do not offer a previous conversation's report after navigation", async () => {
+    const ui = makeExportUiHarness();
+    ui.launcher.listeners.click();
+    await ui.settle();
+    ui.pending[0](ok(page([msg("old-chat")], "old", false)));
+    await ui.settle();
+    await ui.settle();
+    ui.modeButton().listeners.click();
+    ui.diagnosticsToggle().listeners.click();
+    assert.equal(ui.diagnosticsDownload().disabled, false);
+    const initialFiles = ui.downloads.length;
+    ui.location.pathname = "/c/11111111-2222-3333-4444-555555555555";
+    ui.diagnosticsDownload().listeners.click();
+    assert.equal(ui.downloads.length, initialFiles);
+    ui.modeButton().listeners.click();
+    ui.modeButton().listeners.click();
+    ui.diagnosticsToggle().listeners.click();
+    assert.equal(ui.diagnosticsDownload().disabled, true);
+    ui.launcher.listeners.click();
+    await ui.settle();
+    assert.equal(ui.diagnosticsDownload(), null);
+    ui.pending[1](ok(page([msg("new-chat")], "new", false)));
+    await ui.settle();
+    await ui.settle();
+    ui.modeButton().listeners.click();
+    ui.diagnosticsToggle().listeners.click();
+    assert.equal(ui.diagnosticsDownload().disabled, false);
+    ui.diagnosticsDownload().listeners.click();
+    const report = JSON.parse(await ui.downloads.at(-1).blob.text());
+    assert.equal(report.summary.message_records, 1);
+    assert.equal(report.summary.api_pages_completed, 1);
 });

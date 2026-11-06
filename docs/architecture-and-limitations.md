@@ -20,7 +20,7 @@ A standalone Tampermonkey/Greasemonkey userscript exports **only the original Ch
 
 The launcher is deliberately small, with an **11-pixel label** and a **transparent, borderless, shadow-free SVG gear** directly to its right. The gear is a semantic button with accessible name and keyboard focus treatment. The eight-tooth icon draws with `currentColor`; the toolbar resolves ChatGPT's text color using `var(--text-primary, var(--token-text-primary, inherit))`. No separate theme polling or fixed light/dark color is needed.
 
-The animated **Dots** indicator stays tied to the active export controller rather than the dismissible progress panel. Dots become static under `prefers-reduced-motion: reduce`. **Close** hides only the panel. Clicking Export during a running export reopens it without starting duplicate HTTP requests. **Cancel** is visible only during execution; **Save performance report** appears after success, failure, or cancellation.
+The animated **Dots** indicator stays tied to the active export controller rather than the dismissible progress panel. Dots become static under `prefers-reduced-motion: reduce`. **Close** hides only the panel. Clicking Export during a running export reopens it without starting duplicate HTTP requests. **Cancel** is visible only during execution; the progress panel shows only **Close** after the run settles. Performance-report downloads live under **Export settings → Diagnostics**.
 
 ## Stable auto-update architecture (v0.3.2)
 
@@ -183,7 +183,9 @@ With attachments disabled, the exporter creates one ZIP32 archive containing exa
 
 ## Privacy-preserving diagnostics
 
-`Save performance report` is available only after the active export stops and never downloads automatically. The generated `chatgpt-export-performance-<timestamp>.json` includes:
+Beginning with **v0.3.3**, the report download is an advanced action under **Export settings → Diagnostics**, collapsed by default. The progress panel has no report button. The settings disclosure is a native button with `aria-expanded` and `aria-controls`; its download control is disabled until the current conversation has a settled export with recorded samples. It is re-enabled after successful, cancelled or failed exports when measurements exist, and remains accessible if the progress panel has been closed. In-memory report access is scoped to the current conversation: navigation to a different chat makes the previous chat's report unavailable. Starting a new export session creates a new profiler. The disclosure has no effect on the persisted settings.
+
+The generated `chatgpt-export-performance-<timestamp>.json` is still only downloaded after an explicit click. The report schema, profiler instrumentation, filename and retention behavior are unchanged. It includes:
 
 - `requests`: page ordinal, attempt ordinal, HTTP status, time to response headers, JSON body read/parse time, `num_turns`, and available `Content-Length`.
 - `pages`: record count, cumulative count, attempts, fetch/parse times and configured request delay for each validated page.

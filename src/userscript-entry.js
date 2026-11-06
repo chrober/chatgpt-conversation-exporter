@@ -52,6 +52,8 @@
         modeTurnInput: null,
         modeDelayInput: null,
         modeNote: null,
+        diagnosticsDownloadButton: null,
+        diagnosticsHelp: null,
         saveSettingsButton: null,
         resetSettingsButton: null,
         controller: null,
@@ -82,6 +84,35 @@
                 : "Loading saved settings ...");
     }
 
+    function hasDownloadablePerformanceReport() {
+        if (!state.exportSettled || state.controller ||
+            !state.profiler?.hasSamples() || !state.session) return false;
+        // Avoid offering diagnostics from a different chat after SPA navigation.
+        try {
+            return state.session.conversationId ===
+                parseConversationUrl(currentUrl()).conversationId;
+        } catch {
+            return false;
+        }
+    }
+
+    function updateDiagnosticsControls() {
+        if (!state.diagnosticsDownloadButton) return;
+        const available = hasDownloadablePerformanceReport();
+        state.diagnosticsDownloadButton.disabled = !available;
+        state.diagnosticsDownloadButton.style.opacity =
+            available ? "1" : "0.55";
+        state.diagnosticsDownloadButton.style.cursor =
+            available ? "pointer" : "not-allowed";
+        if (state.diagnosticsHelp) {
+            state.diagnosticsHelp.textContent = available ?
+                "Performance data from the latest export in this conversation." :
+                state.controller ?
+                    "The performance report is available when the export finishes." :
+                    "Run an export to enable the performance report.";
+        }
+    }
+
     function updateSettingsInputs() {
         if (!state.modeTurnInput || !state.modeDelayInput) return;
         state.modeTurnInput.value = String(state.numTurns);
@@ -104,6 +135,7 @@
         if (state.attachmentInput) state.attachmentInput.disabled = disabled;
         state.saveSettingsButton.disabled = disabled;
         state.resetSettingsButton.disabled = disabled;
+        updateDiagnosticsControls();
         updateSettingsNote();
     }
 
@@ -236,6 +268,8 @@
         state.attachmentInput = null;
         state.attachmentIndicator = null;
         state.modeNote = null;
+        state.diagnosticsDownloadButton = null;
+        state.diagnosticsHelp = null;
         state.saveSettingsButton = null;
         state.resetSettingsButton = null;
     }
@@ -247,7 +281,7 @@
         }
         const root = document.createElement("aside");
         root.id = "chatgpt-conversation-export-mode-panel";
-        root.setAttribute("aria-label", "Export performance settings");
+        root.setAttribute("aria-label", "Export settings");
         Object.assign(root.style, {
             position: "fixed", right: "18px", bottom: "62px",
             zIndex: "2147483647", background: "#17202b",
@@ -258,7 +292,7 @@
             width: "min(300px, calc(100vw - 36px))"
         });
         const heading = document.createElement("div");
-        heading.textContent = "Export performance";
+        heading.textContent = "Export settings";
         heading.style.fontWeight = "700";
         heading.style.marginBottom = "8px";
         root.appendChild(heading);
@@ -418,6 +452,66 @@
         });
         root.appendChild(note);
 
+        // Advanced diagnostics are available without cluttering the normal
+        // progress/completion panel. The disclosure is collapsed by default.
+        const diagnostics = document.createElement("div");
+        Object.assign(diagnostics.style, {
+            borderTop: "1px solid #46505a",
+            marginTop: "12px", paddingTop: "9px"
+        });
+        const disclosure = document.createElement("button");
+        disclosure.id = "chatgpt-conversation-export-diagnostics-toggle";
+        disclosure.type = "button";
+        disclosure.textContent = "Diagnostics";
+        disclosure.setAttribute("aria-expanded", "false");
+        disclosure.setAttribute(
+            "aria-controls", "chatgpt-conversation-export-diagnostics-content"
+        );
+        Object.assign(disclosure.style, {
+            display: "block", width: "100%", textAlign: "left",
+            padding: "3px 0", border: "0", borderRadius: "3px",
+            background: "transparent", color: "#c4cedb",
+            font: "inherit", cursor: "pointer"
+        });
+        diagnostics.appendChild(disclosure);
+
+        const diagnosticsContent = document.createElement("div");
+        diagnosticsContent.id = "chatgpt-conversation-export-diagnostics-content";
+        diagnosticsContent.hidden = true;
+        diagnosticsContent.style.display = "none";
+        diagnosticsContent.style.marginTop = "8px";
+
+        const diagnosticsHelp = document.createElement("div");
+        Object.assign(diagnosticsHelp.style, {
+            color: "#c4cedb", fontSize: "11px", marginBottom: "8px"
+        });
+        diagnosticsContent.appendChild(diagnosticsHelp);
+
+        const downloadDiagnostics = document.createElement("button");
+        downloadDiagnostics.id = "chatgpt-conversation-export-download-diagnostics";
+        downloadDiagnostics.type = "button";
+        downloadDiagnostics.textContent = "Download performance report";
+        Object.assign(downloadDiagnostics.style, {
+            padding: "5px 9px", border: "1px solid #8c99a8",
+            borderRadius: "5px", background: "#354152",
+            color: "#f6f7f8", font: "inherit"
+        });
+        downloadDiagnostics.addEventListener("click", () => {
+            if (!hasDownloadablePerformanceReport()) return;
+            downloadProfile(state.profiler.report());
+            diagnosticsHelp.textContent = "Performance report downloaded.";
+        });
+        diagnosticsContent.appendChild(downloadDiagnostics);
+        diagnostics.appendChild(diagnosticsContent);
+        disclosure.addEventListener("click", () => {
+            const expanded = disclosure.getAttribute("aria-expanded") !== "true";
+            disclosure.setAttribute("aria-expanded", String(expanded));
+            diagnosticsContent.hidden = !expanded;
+            diagnosticsContent.style.display = expanded ? "block" : "none";
+            if (expanded) updateDiagnosticsControls();
+        });
+        root.appendChild(diagnostics);
+
         const version = document.createElement("div");
         version.id = "chatgpt-conversation-export-version";
         version.textContent = "v" + USERSCRIPT_VERSION;
@@ -435,6 +529,8 @@
         state.attachmentInput = attachmentCheckbox;
         state.attachmentIndicator = check;
         state.modeNote = note;
+        state.diagnosticsDownloadButton = downloadDiagnostics;
+        state.diagnosticsHelp = diagnosticsHelp;
         state.saveSettingsButton = save;
         state.resetSettingsButton = reset;
         updateSettingsInputs();
@@ -528,37 +624,27 @@
         const cancel = makeButton("Cancel", () => {
             state.controller?.abort();
         });
-        const saveProfile = makeButton("Save performance report", () => {
-            if (state.exportSettled && state.profiler) {
-                downloadProfile(state.profiler.report());
-                report("Performance report downloaded.", "The report excludes chat content and identifiers.");
-            }
-        });
         makeButton("Close", () => {
             root.remove();
             state.panel = null;
         });
-        updatePanelActions({ cancel, saveProfile });
+        updatePanelActions({ cancel });
         root.appendChild(actions);
         document.body.appendChild(root);
-        state.panel = { root, status, progress, cancel, saveProfile };
+        state.panel = { root, status, progress, cancel };
         return state.panel;
     }
 
     function updatePanelActions(panel) {
         const running = Boolean(state.controller);
         const canCancel = running && !state.controller.signal.aborted;
-        // Exactly one contextual action: Cancel during a run, Save report
-        // after success, failure or cancellation. Close stays visible.
+        // Only Cancel (when running) and Close are shown. Diagnostics are
+        // available through the gear/settings panel after the run.
         setCancelEnabled(panel.cancel, canCancel);
         panel.cancel.hidden = !running;
         panel.cancel.style.display = running ? "" : "none";
         panel.cancel.setAttribute("aria-hidden", String(!running));
 
-        const canSave = state.exportSettled && Boolean(state.profiler);
-        panel.saveProfile.hidden = !canSave;
-        panel.saveProfile.style.display = canSave ? "" : "none";
-        panel.saveProfile.disabled = !canSave;
     }
 
     function report(message, detail = "") {
@@ -936,7 +1022,7 @@
         const settings = document.createElement("button");
         settings.id = "chatgpt-conversation-export-mode-button";
         settings.type = "button";
-        settings.title = "Export performance settings";
+        settings.title = "Export settings";
         settings.setAttribute("aria-label", settings.title);
         Object.assign(settings.style, {
             display: "inline-flex", alignItems: "center",

@@ -2,14 +2,14 @@
 
 A standalone **Tampermonkey/Greasemonkey userscript** that exports **one currently open, original ChatGPT conversation** as JSON. It is not an account-wide export, and it never starts an export automatically on page load.
 
-> **Version 0.3.2.** The paginated exporter and an actual user-uploaded 7z attachment have been successfully exported in Firefox/Tampermonkey. Other attachment types remain best-effort and may require further browser validation. The internal ChatGPT APIs are undocumented and may change without notice.
+> **Version 0.3.3.** The paginated exporter and an actual user-uploaded 7z attachment have been successfully exported in Firefox/Tampermonkey. Other attachment types remain best-effort and may require further browser validation. The internal ChatGPT APIs are undocumented and may change without notice.
 
 ## Install and use
 
 1. Install **Tampermonkey** (recommended) or **Greasemonkey 4.11+** in Firefox.
 2. [Install the current release userscript from `main`](https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/main/userscripts/chatgpt-conversation-export.user.js), or open [the generated userscript](userscripts/chatgpt-conversation-export.user.js) and install it through your userscript manager. **Update/replace** an earlier installation; do not enable duplicate copies.
 3. Sign in at [chatgpt.com](https://chatgpt.com) and open an **original conversation** with a URL such as `/c/<uuid>` or `/g/.../c/<uuid>`. Reload the tab after installation or update.
-4. Click the compact **Export chat as JSON** button at the bottom right. The transparent gear immediately to its right opens **Export performance**, with **Turns**, **Delay**, and an optional **Include attachments** toggle. The installed **version appears in small type at the bottom right** of the settings panel. Defaults are **3 turns / 100 ms**, with attachments **off**.
+4. Click the compact **Export chat as JSON** button at the bottom right. The transparent gear immediately to its right opens **Export settings**, with **Turns**, **Delay**, an optional **Include attachments** toggle, and a collapsed **Diagnostics** section. The installed **version appears in small type at the bottom right** of the settings panel. Defaults are **3 turns / 100 ms**, with attachments **off**.
 5. The progress panel shows counts of **API pages** and **message records**. **Cancel** stops the active run; clicking Export again resumes validated pages in the same tab. **Close** dismisses only the panel, **not** the export; animated **Dots** in the launcher remain visible while the export runs. Click the launcher again to reopen the panel without starting a duplicate request.
 6. After the API confirms the end of pagination, the browser downloads a ZIP containing the conversation JSON (and, optionally, attachments and a manifest when enabled). If ZIP compression is unavailable, the exporter explicitly downloads the original uncompressed `.json` instead. Check the downloaded file.
 
@@ -65,11 +65,17 @@ Changing a valid value updates the **next** export immediately, but is **session
 
 To measure a fresh HTTP export with the *same* settings, **reload the ChatGPT tab** first. Otherwise a completed in-memory session can generate another ZIP without fetching messages again.
 
+## Optional diagnostics (v0.3.3)
+
+Performance measurement stays enabled internally, but its download is no longer a primary export action. After an export completes, fails or is cancelled, open the gear → **Export settings**, expand the collapsed **Diagnostics** section and select **Download performance report**. The download is disabled before any eligible run or while the export is active. It remains available even if the progress panel has been closed. Navigating to another conversation does not expose a previous conversation's report. No report is saved or downloaded automatically; opening Diagnostics does not affect saved export settings.
+
+The report schema, measurements, privacy policy and filename remain unchanged. Reports include request/page timings and summary counters but exclude conversation contents and IDs. This is still a troubleshooting feature rather than part of the regular export workflow.
+
 ## Optional attachment export (v0.3.0; opt-in, best effort)
 
 The attachment toggle is a **custom visibly drawn square checkbox** with a clear checkmark rather than a native `<input type="checkbox">`. This avoids ChatGPT's global form CSS hiding the control. It is still keyboard accessible (**Tab**, **Space/Enter**) and exposes `role="checkbox"` / `aria-checked` for assistive technologies.
 
-The regular conversation export is **unchanged when the option is disabled**. In **Export performance**, enable **Include attachments** to attempt downloading files referenced by the exported conversation. It is **off by default**. Like Turns and Delay, the option is session-only until **Save** is clicked; **Load defaults** turns it off.
+The regular conversation export is **unchanged when the option is disabled**. In **Export settings**, enable **Include attachments** to attempt downloading files referenced by the exported conversation. It is **off by default**. Like Turns and Delay, the option is session-only until **Save** is clicked; **Load defaults** turns it off.
 
 When enabled, the ZIP will contain:
 
@@ -125,7 +131,7 @@ For the measured 5,329-record conversation, the user independently confirmed **i
 - Retries temporary HTTP 429/500/502/503/504 and network failures. Two repeated retryable 5xx/network failures on the same page trigger a fallback to `num_turns=1`; 429 alone does not reduce batch size.
 - Preserves validated pages **in the current tab's memory** after cancellation/error, enabling in-tab resume. Reloading the page clears this export cache.
 - Generates one ZIP archive with UTF-8, CRC32, and native DEFLATE (`CompressionStream('deflate-raw')`), without runtime libraries; explicitly falls back to plain JSON when required.
-- Shows **Cancel only while exporting**, and **Save performance report** after an export succeeds, fails, or is cancelled. The performance report is downloaded **only after an explicit click**. Closing the progress panel does not stop the dots or active export.
+- Shows **Cancel only while exporting**, with **Close** always available. The performance report is no longer a button in the progress panel: expand **Export settings → Diagnostics** and click **Download performance report** after a run settles (success, failure or cancellation). Closing the progress panel does not stop the dots or active export. The report remains in memory for the active conversation/session and is never downloaded automatically.
 - Never retrieves attachment files separately or claims to have exported all historic conversation branches/versions.
 
 For implementation details and privacy boundaries, see [architecture and limitations](docs/architecture-and-limitations.md). For anonymized historical measurements and their interpretation, see [performance baseline](docs/performance-baseline-2026-11-01.md).
