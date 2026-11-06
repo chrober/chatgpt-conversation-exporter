@@ -14,12 +14,26 @@ A standalone Tampermonkey/Greasemonkey userscript exports **only the original Ch
 | `src/userscript-entry.js` | Tampermonkey/Greasemonkey integration, launcher, gear settings, progress panel, cancellation, downloads |
 | `scripts/compare-exports.js` | Offline ZIP/JSON integrity and message equality comparator |
 | `scripts/build-userscript.js` | Deterministic assembly of source modules and userscript metadata |
-| `userscripts/chatgpt-conversation-export.user.js` | Generated installable bundle; do **not** edit it independently |
+| `userscripts/chatgpt-conversation-export.user.js` | Generated installable bundle with stable `@updateURL` / `@downloadURL`; do **not** edit independently |
+| `userscripts/chatgpt-conversation-export.meta.js` | Metadata-only version-check file, generated from the same header as the complete bundle |
 | `tests/*.test.js` | Synthetic unit/UI regressions and ZIP verification; no real conversation data |
 
 The launcher is deliberately small, with an **11-pixel label** and a **transparent, borderless, shadow-free SVG gear** directly to its right. The gear is a semantic button with accessible name and keyboard focus treatment. The eight-tooth icon draws with `currentColor`; the toolbar resolves ChatGPT's text color using `var(--text-primary, var(--token-text-primary, inherit))`. No separate theme polling or fixed light/dark color is needed.
 
 The animated **Dots** indicator stays tied to the active export controller rather than the dismissible progress panel. Dots become static under `prefers-reduced-motion: reduce`. **Close** hides only the panel. Clicking Export during a running export reopens it without starting duplicate HTTP requests. **Cancel** is visible only during execution; **Save performance report** appears after success, failure, or cancellation.
+
+## Stable auto-update architecture (v0.3.2)
+
+The builder (`scripts/build-userscript.js`) defines **one shared userscript metadata header**. It writes that header verbatim as `userscripts/chatgpt-conversation-export.meta.js` and prepends the same bytes to `userscripts/chatgpt-conversation-export.user.js`. The `--check` mode compares **both** generated files byte-for-byte to their expected content, and the Node tests verify their equality, canonical source URLs, and version parity with the package and performance report.
+
+The `@version` is read from `package.json`; the runtime `USERSCRIPT_VERSION` used in the settings footer and profiling report must match and is verified by tests. The metadata points to:
+
+- `@updateURL`: `https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/main/userscripts/chatgpt-conversation-export.meta.js`
+- `@downloadURL`: `https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/main/userscripts/chatgpt-conversation-export.user.js`
+
+Tampermonkey checks the compact `.meta.js` to detect a **strictly newer** version, then fetches the `.user.js` from `main`. This is a **userscript-manager-initiated** update, not a network request made by the exporter at runtime. No extra OAuth tokens, permissions or third-party dependencies are introduced. A manual one-time upgrade may be required for installations made before these tags were added.
+
+**Branch caveat:** Experimental userscript installations built from feature branches also contain these stable update URLs. An automatic update can therefore switch them back to the `main` release when its version advances. Disable updates on the experimental installation while testing feature branches.
 
 ## Pagination flow
 
