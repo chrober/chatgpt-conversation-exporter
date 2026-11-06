@@ -110,7 +110,9 @@ This is an **illustrative schema**, not a realistic completed export. `page_meta
 
 `pagination_verified: true` means **the backend reported the end of the fetched older-page chain**. It does not prove that all historical versions, alternative branches, or external attachments were captured. `attachments_fetched_separately` is always `false`.
 
-## Optional attachments (v0.3.0; best effort)
+## Optional attachments (introduced in v0.3.0; best effort)
+
+Since v0.3.1, the visible option and its accessibility label are simply **Include attachments**, without the old experimental suffix. A small, right-aligned **version footer** displays the shared `USERSCRIPT_VERSION` also used by the performance report.
 
 The attachment selection is rendered as a **custom 18×18 pixel visual checkbox** using a native `button` with `role="checkbox"`, a dynamic `aria-checked` attribute and a hand-drawn SVG tick. No browser-native checkbox appearance is used, avoiding style resets by ChatGPT's global CSS. Tab and Space/Enter retain keyboard accessibility.
 

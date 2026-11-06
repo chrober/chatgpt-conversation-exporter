@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Conversation Exporter
 // @namespace    https://github.com/chrober/chatgpt-conversation-exporter
-// @version      0.3.0
+// @version      0.3.1
 // @author       Christoph O'Bermair
 // @description  Export the current ChatGPT conversation as JSON.
 // @match        https://chatgpt.com/*
@@ -314,6 +314,9 @@ if (typeof module !== "undefined" && module.exports) {
 
 "use strict";
 
+// Single runtime version shared by the settings UI and performance reports.
+const USERSCRIPT_VERSION = "0.3.1";
+
 /**
  * Local-only, content-free performance profiling.
  * No chat identifiers, URLs, cursors, tokens, headers or message bodies.
@@ -461,7 +464,7 @@ function createExportProfiler(options = {}) {
         const recordCount = pages.at(-1)?.cumulative_records ?? 0;
         return {
             profile_format: "chatgpt-export-performance-v1",
-            userscript_version: "0.3.0",
+            userscript_version: USERSCRIPT_VERSION,
             created_at: startedAt,
             reported_at: new Date().toISOString(),
             completed,
@@ -1516,7 +1519,7 @@ if (typeof module !== "undefined" && module.exports) {
         attachmentCheckbox.type = "button";
         attachmentCheckbox.setAttribute("role", "checkbox");
         attachmentCheckbox.setAttribute(
-            "aria-label", "Include attachments (experimental)"
+            "aria-label", "Include attachments"
         );
         attachmentCheckbox.setAttribute("aria-checked", "false");
         Object.assign(attachmentCheckbox.style, {
@@ -1568,7 +1571,7 @@ if (typeof module !== "undefined" && module.exports) {
         }
         attachmentCheckbox.addEventListener("click", toggleAttachments);
         const attachmentText = document.createElement("span");
-        attachmentText.textContent = "Include attachments (experimental)";
+        attachmentText.textContent = "Include attachments";
         Object.assign(attachmentText.style, {
             cursor: "pointer", userSelect: "none"
         });
@@ -1617,6 +1620,17 @@ if (typeof module !== "undefined" && module.exports) {
             color: "#c4cedb", marginTop: "8px", maxWidth: "285px"
         });
         root.appendChild(note);
+
+        const version = document.createElement("div");
+        version.id = "chatgpt-conversation-export-version";
+        version.textContent = "v" + USERSCRIPT_VERSION;
+        version.setAttribute("aria-label", "Exporter version " + USERSCRIPT_VERSION);
+        Object.assign(version.style, {
+            fontSize: "10px", lineHeight: "1.2",
+            color: "#9ca9bb", textAlign: "right",
+            marginTop: "7px", userSelect: "none"
+        });
+        root.appendChild(version);
         document.body.appendChild(root);
         state.modePanel = root;
         state.modeTurnInput = turns;

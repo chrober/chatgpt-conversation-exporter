@@ -316,7 +316,7 @@
         attachmentCheckbox.type = "button";
         attachmentCheckbox.setAttribute("role", "checkbox");
         attachmentCheckbox.setAttribute(
-            "aria-label", "Include attachments (experimental)"
+            "aria-label", "Include attachments"
         );
         attachmentCheckbox.setAttribute("aria-checked", "false");
         Object.assign(attachmentCheckbox.style, {
@@ -368,7 +368,7 @@
         }
         attachmentCheckbox.addEventListener("click", toggleAttachments);
         const attachmentText = document.createElement("span");
-        attachmentText.textContent = "Include attachments (experimental)";
+        attachmentText.textContent = "Include attachments";
         Object.assign(attachmentText.style, {
             cursor: "pointer", userSelect: "none"
         });
@@ -417,6 +417,17 @@
             color: "#c4cedb", marginTop: "8px", maxWidth: "285px"
         });
         root.appendChild(note);
+
+        const version = document.createElement("div");
+        version.id = "chatgpt-conversation-export-version";
+        version.textContent = "v" + USERSCRIPT_VERSION;
+        version.setAttribute("aria-label", "Exporter version " + USERSCRIPT_VERSION);
+        Object.assign(version.style, {
+            fontSize: "10px", lineHeight: "1.2",
+            color: "#9ca9bb", textAlign: "right",
+            marginTop: "7px", userSelect: "none"
+        });
+        root.appendChild(version);
         document.body.appendChild(root);
         state.modePanel = root;
         state.modeTurnInput = turns;

@@ -1,6 +1,6 @@
 # Installation, operation, and Firefox validation
 
-This guide covers **version 0.3.0** of the ChatGPT Conversation Exporter for Tampermonkey and Greasemonkey. The original paginated JSON exporter has been tested in Firefox, with full-message comparison across batching modes. A real user-uploaded 7z attachment was also downloaded successfully with the updated project-aware attachment resolver. **Other file types are best effort and need additional browser checks.** Node CI cannot reproduce live API permissions or browser download behavior.
+This guide covers **version 0.3.1** of the ChatGPT Conversation Exporter for Tampermonkey and Greasemonkey. The original paginated JSON exporter has been tested in Firefox, with full-message comparison across batching modes. A real user-uploaded 7z attachment was also downloaded successfully with the updated project-aware attachment resolver. **Other file types are best effort and need additional browser checks.** Node CI cannot reproduce live API permissions or browser download behavior.
 
 ## Requirements
 
@@ -44,6 +44,8 @@ This development release intentionally has no explicit `@updateURL` or `@downloa
 
 The **gear to the immediate right of the launcher** has no visible button chrome (background, border, or shadow). It is a semantic keyboard-accessible button containing a monochrome eight-tooth SVG. The icon follows the live ChatGPT text color in light/dark themes.
 
+A subtle **`v0.3.1`** appears in the **bottom-right corner** of the settings panel, below the status message. It matches the userscript metadata and performance report version. The attachment checkbox is labeled **Include attachments**, without the former “(experimental)” suffix; the behavior remains opt-in and best effort.
+
 The panel intentionally contains **only two numeric inputs**:
 
 | Field | Default | Allowed | Meaning |
@@ -64,7 +66,7 @@ A new browser tab normally loads the durable saved values rather than unsaved ch
 
 ## Optional attachment exports (v0.3.0; best effort)
 
-**Version 0.3.0** includes a default-OFF **Include attachments (experimental)** checkbox below Turns and Delay in the gear panel. Setting the checkbox is session-only until **Save** is clicked. **Load defaults** turns it off; Save after loading defaults makes this choice permanent.
+**Version 0.3.0** includes a default-OFF **Include attachments** checkbox below Turns and Delay in the gear panel. Setting the checkbox is session-only until **Save** is clicked. **Load defaults** turns it off; Save after loading defaults makes this choice permanent.
 
 Install the [released build from `main`](https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/main/userscripts/chatgpt-conversation-export.user.js) as an **update/replacement** for the existing userscript, not as a second active copy.
 
@@ -74,7 +76,7 @@ Files are limited to **100 attempted references**, **50 MiB each**, **200 MiB to
 
 ### Manual Firefox/Tampermonkey acceptance
 
-- [ ] Verify version 0.3.0 and that the checkbox defaults to **off** on a new installation.
+- [ ] Verify version 0.3.1 and that the checkbox defaults to **off** on a new installation.
 - [ ] The attachment option shows a **visible empty square** to the left of its label, regardless of ChatGPT light/dark theme. Clicking makes it blue with a white checkmark; clicking again clears it. **Tab + Space/Enter** also toggles it, and `aria-checked` follows the visual state.
 - [ ] With checkbox **off**, export a known conversation; ZIP still has exactly one conversation JSON file and its content matches the main-branch export.
 - [ ] Upload a small ordinary file (e.g., a text file or PDF) to a test conversation; enable the checkbox and export. Inspect the manifest; confirm the file is present under `attachments/` and its bytes match the original.
@@ -139,7 +141,7 @@ For one real 5,329-message-record conversation the user independently confirmed 
 - [ ] Only one script instance is active, and v0.2.3 loads without errors after F5.
 - [ ] Compact launcher and **transparent gear immediately on its right** appear without covering native ChatGPT controls.
 - [ ] The SVG gear is legible in **light and dark ChatGPT themes**, has no ship-wheel/emoji styling, and works with mouse and **Tab + Enter/Space**. Keyboard focus remains visible.
-- [ ] Gear panel shows **only Turns and Delay**, defaults **3 / 100**, and no presets.
+- [ ] Gear panel shows **Turns**, **Delay**, the opt-in **Include attachments** checkbox and **v0.3.1** in the small footer; defaults **3 / 100**, attachments disabled, no presets.
 - [ ] Unsaved changes to **5 / 200** persist after F5 in the same tab, but do not unexpectedly overwrite permanent preferences.
 - [ ] **Save** persists values across new sessions; **Load defaults** resets only the session until another Save.
 - [ ] Invalid inputs (e.g. Turns 0, Delay −1, fractional values) are rejected; valid Turns 4 or 10 are accepted.
