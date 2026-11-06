@@ -1,6 +1,6 @@
 # Installation, operation, and Firefox validation
 
-This guide covers **version 0.3.2** of the ChatGPT Conversation Exporter for Tampermonkey and Greasemonkey. The original paginated JSON exporter has been tested in Firefox, with full-message comparison across batching modes. A real user-uploaded 7z attachment was also downloaded successfully with the updated project-aware attachment resolver. **Other file types are best effort and need additional browser checks.** Node CI cannot reproduce live API permissions or browser download behavior.
+This guide covers **version 0.3.3** of the ChatGPT Conversation Exporter for Tampermonkey and Greasemonkey. The original paginated JSON exporter has been tested in Firefox, with full-message comparison across batching modes. A real user-uploaded 7z attachment was also downloaded successfully with the updated project-aware attachment resolver. **Other file types are best effort and need additional browser checks.** Node CI cannot reproduce live API permissions or browser download behavior.
 
 ## Requirements
 
@@ -38,7 +38,7 @@ In Tampermonkey's Dashboard → Settings, configure the update-check interval an
 1. Click **Export chat as JSON** while viewing the original conversation. No export starts on page load.
 2. The progress panel displays **API pages** (backend pagination responses) and **message records** (technical message objects); these are *not* synonymous with conversation turns or browser pages. Messages are collected sequentially and the progress text no longer says **"checking for older pages"**.
 3. **Cancel** interrupts the current run; restart the export from the same conversation and tab to resume previously validated pages. **Close** dismisses the panel but **does not cancel** the export. The **Dots** activity animation remains visible in the launcher even while the panel is closed. Clicking Export while a run is active reopens the panel rather than starting another export.
-4. On completion, the panel displays **Save performance report**, while **Cancel** is hidden. The browser downloads a ZIP containing `chatgpt-conversation-<conversation-id>.json`. If ZIP compression fails or is unsupported, the exporter downloads **plain JSON** and explicitly reports the fallback.
+4. On completion, the panel displays only **Close**, while **Cancel** is hidden. To download diagnostic metrics, use **Export settings → Diagnostics → Download performance report**. The browser downloads a ZIP containing `chatgpt-conversation-<conversation-id>.json`. If ZIP compression fails or is unsupported, the exporter downloads **plain JSON** and explicitly reports the fallback.
 5. The completion line displays **whole-second active duration**, **JSON uncompressed** (UTF-8 byte size in MiB), and downloaded **ZIP** or **JSON** size. For instance:
 
    ```text
@@ -53,11 +53,11 @@ In Tampermonkey's Dashboard → Settings, configure the update-check interval an
 
 **Important:** Clicking Export again with unchanged settings in the *same completed tab* can produce a fresh ZIP **without a new API download**. To measure a new full export, **reload the tab** first.
 
-## Export performance settings
+## Export settings
 
 The **gear to the immediate right of the launcher** has no visible button chrome (background, border, or shadow). It is a semantic keyboard-accessible button containing a monochrome eight-tooth SVG. The icon follows the live ChatGPT text color in light/dark themes.
 
-A subtle **`v0.3.2`** appears in the **bottom-right corner** of the settings panel, below the status message. It matches the userscript metadata and performance report version. The attachment checkbox is labeled **Include attachments**, without the former “(experimental)” suffix; the behavior remains opt-in and best effort.
+A subtle **`v0.3.3`** appears in the **bottom-right corner** of the settings panel, below the status message. It matches the userscript metadata and performance report version. The attachment checkbox is labeled **Include attachments**, without the former “(experimental)” suffix; the behavior remains opt-in and best effort.
 
 The panel intentionally contains **only two numeric inputs**:
 
@@ -77,6 +77,20 @@ Higher batch sizes may cause slow or oversized responses. **Only values up to 3 
 
 A new browser tab normally loads the durable saved values rather than unsaved changes made in another tab. Some browsers restore session storage when restoring tabs; that may preserve session-only values longer than an ordinary new tab.
 
+## Optional performance diagnostics (v0.3.3)
+
+The standard export progress panel displays **Cancel** while running and **Close** at all times; it does not present a performance-report download button after completion.
+
+To get the same JSON report as before:
+
+1. Complete, cancel or encounter an error during an export of the current conversation.
+2. Open the settings gear (**Export settings**).
+3. Expand **Diagnostics** (collapsed by default), then click **Download performance report**.
+
+The Diagnostics area is a normal accessible disclosure with `aria-expanded` and `aria-controls`. The download action is **disabled** if no eligible report is available or while an export is active. Closing the progress panel does **not** discard in-memory performance data. A report from a previous chat is not offered after single-page-app navigation; a new export session creates a fresh profiler. Expanding the section does not change or save Turns, Delay or Include attachments.
+
+No automatic report files, report format changes or additional persistent storage have been introduced. The existing `chatgpt-export-performance-<timestamp>.json` contains timings and counters, with no conversation text, IDs, URLs or access credentials.
+
 ## Optional attachment exports (v0.3.0; best effort)
 
 **Version 0.3.0** includes a default-OFF **Include attachments** checkbox below Turns and Delay in the gear panel. Setting the checkbox is session-only until **Save** is clicked. **Load defaults** turns it off; Save after loading defaults makes this choice permanent.
@@ -89,7 +103,7 @@ Files are limited to **100 attempted references**, **50 MiB each**, **200 MiB to
 
 ### Manual Firefox/Tampermonkey acceptance
 
-- [ ] Verify version 0.3.2 and that the checkbox defaults to **off** on a new installation.
+- [ ] Verify version 0.3.3 and that the checkbox defaults to **off** on a new installation.
 - [ ] The attachment option shows a **visible empty square** to the left of its label, regardless of ChatGPT light/dark theme. Clicking makes it blue with a white checkmark; clicking again clears it. **Tab + Space/Enter** also toggles it, and `aria-checked` follows the visual state.
 - [ ] With checkbox **off**, export a known conversation; ZIP still has exactly one conversation JSON file and its content matches the main-branch export.
 - [ ] Upload a small ordinary file (e.g., a text file or PDF) to a test conversation; enable the checkbox and export. Inspect the manifest; confirm the file is present under `attachments/` and its bytes match the original.
@@ -151,24 +165,24 @@ For one real 5,329-message-record conversation the user independently confirmed 
 
 ## Manual browser acceptance checklist
 
-- [ ] Only one script instance is active, and v0.3.2 loads without errors after F5.
+- [ ] Only one script instance is active, and v0.3.3 loads without errors after F5.
 - [ ] Compact launcher and **transparent gear immediately on its right** appear without covering native ChatGPT controls.
 - [ ] The SVG gear is legible in **light and dark ChatGPT themes**, has no ship-wheel/emoji styling, and works with mouse and **Tab + Enter/Space**. Keyboard focus remains visible.
-- [ ] Gear panel shows **Turns**, **Delay**, the opt-in **Include attachments** checkbox and **v0.3.1** in the small footer; defaults **3 / 100**, attachments disabled, no presets.
+- [ ] Gear panel shows **Turns**, **Delay**, the opt-in **Include attachments** checkbox and **v0.3.3** in the small footer; defaults **3 / 100**, attachments disabled, no presets.
 - [ ] Unsaved changes to **5 / 200** persist after F5 in the same tab, but do not unexpectedly overwrite permanent preferences.
 - [ ] **Save** persists values across new sessions; **Load defaults** resets only the session until another Save.
 - [ ] Invalid inputs (e.g. Turns 0, Delay −1, fractional values) are rejected; valid Turns 4 or 10 are accepted.
 - [ ] Settings controls become disabled during export and enabled again afterward.
 - [ ] A small original chat downloads successfully; no automatic download occurs on page load.
 - [ ] During export, progress text contains **only API pages and message records**, without "checking for older pages".
-- [ ] **Cancel** is visible only during an active run; **Save performance report** appears only after stopping. **Close** is always available.
+- [ ] **Cancel** is visible only during an active run; **Close** is always available. The progress panel never shows a performance-report download button.
 - [ ] Dots animate while fetching, retrying and compressing, even with the progress panel closed. They stop on success, cancellation or error; reduced-motion settings make dots static.
 - [ ] Closing and reopening an active progress panel **does not start additional requests**.
 - [ ] Closing a completed panel and downloading the same in-memory chat again does not show a stale grey Cancel button.
 - [ ] Final status displays **whole seconds**, properly carries `59.8s → 1m 0s`, and shows both **uncompressed JSON** and actual downloaded file size in MiB.
 - [ ] ZIP opens and contains exactly one valid JSON file; CRC32 and export audit are correct.
 - [ ] When browser-native compression is unavailable, the fallback is visibly labeled **JSON**, never an invalid ZIP.
-- [ ] **Save performance report** creates a JSON with counts/times, no private chat IDs/contents/tokens, only after explicit user action.
+- [ ] **Export settings → Diagnostics → Download performance report** creates a JSON with counts/times, no private chat IDs/contents/tokens, only after an explicit click. The action is disabled before a run or while one is active, and is available after success, error or cancellation.
 - [ ] A long chat reaches `has_previous_page=false` without cursor loops; a cancelled export resumes in the same tab.
 - [ ] Navigating to a different original conversation starts a separate session and filename.
 - [ ] Shared links or non-conversation URLs fail safely.
