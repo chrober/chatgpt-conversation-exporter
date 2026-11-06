@@ -1,11 +1,13 @@
 // ==UserScript==
 // @name         ChatGPT Conversation Exporter
 // @namespace    https://github.com/chrober/chatgpt-conversation-exporter
-// @version      0.3.1
+// @version      0.3.2
 // @author       Christoph O'Bermair
 // @description  Export the current ChatGPT conversation as JSON.
 // @match        https://chatgpt.com/*
 // @run-at       document-idle
+// @updateURL    https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/main/userscripts/chatgpt-conversation-export.meta.js
+// @downloadURL  https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/main/userscripts/chatgpt-conversation-export.user.js
 // @grant        GM_registerMenuCommand
 // @grant        GM.registerMenuCommand
 // @grant        GM_getValue
@@ -315,7 +317,7 @@ if (typeof module !== "undefined" && module.exports) {
 "use strict";
 
 // Single runtime version shared by the settings UI and performance reports.
-const USERSCRIPT_VERSION = "0.3.1";
+const USERSCRIPT_VERSION = "0.3.2";
 
 /**
  * Local-only, content-free performance profiling.
