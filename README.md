@@ -2,14 +2,14 @@
 
 A standalone **Tampermonkey/Greasemonkey userscript** that exports **one currently open, original ChatGPT conversation** as JSON. It is not an account-wide export, and it never starts an export automatically on page load.
 
-> **Version 0.3.0.** The paginated exporter and an actual user-uploaded 7z attachment have been successfully exported in Firefox/Tampermonkey. Other attachment types remain best-effort and may require further browser validation. The internal ChatGPT APIs are undocumented and may change without notice.
+> **Version 0.3.1.** The paginated exporter and an actual user-uploaded 7z attachment have been successfully exported in Firefox/Tampermonkey. Other attachment types remain best-effort and may require further browser validation. The internal ChatGPT APIs are undocumented and may change without notice.
 
 ## Install and use
 
 1. Install **Tampermonkey** (recommended) or **Greasemonkey 4.11+** in Firefox.
 2. [Install the current release userscript from `main`](https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/main/userscripts/chatgpt-conversation-export.user.js), or open [the generated userscript](userscripts/chatgpt-conversation-export.user.js) and install it through your userscript manager. **Update/replace** an earlier installation; do not enable duplicate copies.
 3. Sign in at [chatgpt.com](https://chatgpt.com) and open an **original conversation** with a URL such as `/c/<uuid>` or `/g/.../c/<uuid>`. Reload the tab after installation or update.
-4. Click the compact **Export chat as JSON** button at the bottom right. The transparent gear immediately to its right opens **Export performance**, with **Turns**, **Delay**, and an optional **Include attachments (experimental)** toggle. Defaults are **3 turns / 100 ms**, with attachments **off**.
+4. Click the compact **Export chat as JSON** button at the bottom right. The transparent gear immediately to its right opens **Export performance**, with **Turns**, **Delay**, and an optional **Include attachments** toggle. The installed **version appears in small type at the bottom right** of the settings panel. Defaults are **3 turns / 100 ms**, with attachments **off**.
 5. The progress panel shows counts of **API pages** and **message records**. **Cancel** stops the active run; clicking Export again resumes validated pages in the same tab. **Close** dismisses only the panel, **not** the export; animated **Dots** in the launcher remain visible while the export runs. Click the launcher again to reopen the panel without starting a duplicate request.
 6. After the API confirms the end of pagination, the browser downloads a ZIP containing the conversation JSON (and, optionally, attachments and a manifest when enabled). If ZIP compression is unavailable, the exporter explicitly downloads the original uncompressed `.json` instead. Check the downloaded file.
 
@@ -52,7 +52,7 @@ To measure a fresh HTTP export with the *same* settings, **reload the ChatGPT ta
 
 The attachment toggle is a **custom visibly drawn square checkbox** with a clear checkmark rather than a native `<input type="checkbox">`. This avoids ChatGPT's global form CSS hiding the control. It is still keyboard accessible (**Tab**, **Space/Enter**) and exposes `role="checkbox"` / `aria-checked` for assistive technologies.
 
-The regular conversation export is **unchanged when the option is disabled**. In **Export performance**, enable **Include attachments (experimental)** to attempt downloading files referenced by the exported conversation. It is **off by default**. Like Turns and Delay, the option is session-only until **Save** is clicked; **Load defaults** turns it off.
+The regular conversation export is **unchanged when the option is disabled**. In **Export performance**, enable **Include attachments** to attempt downloading files referenced by the exported conversation. It is **off by default**. Like Turns and Delay, the option is session-only until **Save** is clicked; **Load defaults** turns it off.
 
 When enabled, the ZIP will contain:
 
