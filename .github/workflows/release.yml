@@ -33,6 +33,10 @@ jobs:
             echo "Generated userscript does not match package version"
             exit 1
           fi
+          if ! grep -Fq "// @version      $version" userscripts/chatgpt-conversation-export.meta.js; then
+            echo "Generated update metadata does not match package version"
+            exit 1
+          fi
           if [[ ! -f "docs/releases/v${version}.md" ]]; then
             echo "Missing stable release notes"
             exit 1
@@ -51,6 +55,7 @@ jobs:
           fi
           gh release create "$tag" \
             userscripts/chatgpt-conversation-export.user.js \
+            userscripts/chatgpt-conversation-export.meta.js \
             --target "$GITHUB_SHA" \
             --title "ChatGPT Conversation Exporter $tag" \
             --notes-file "docs/releases/$tag.md" \
