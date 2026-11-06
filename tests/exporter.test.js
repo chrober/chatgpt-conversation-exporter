@@ -665,7 +665,7 @@ test("reopening a dismissed running export restores progress and enabled Cancel"
     await ui.settle();
     assert.equal(cancel.hidden, true);
     assert.equal(cancel.style.display, "none");
-    assert.equal(ui.findButton("Save performance report").hidden, false);
+    assert.equal(ui.findButton("Save performance report"), undefined);
 });
 
 
@@ -722,45 +722,62 @@ test("missing CompressionStream saves honest plain JSON fallback", async () => {
     assert.equal(await result.blob.text(), source);
 });
 
-test("performance report action is hidden until the export settles successfully", async () => {
+test("settings diagnostics are collapsed and download is enabled after success", async () => {
     const ui = makeExportUiHarness();
+    await ui.settle();
+    ui.modeButton().listeners.click();
+    assert.equal(ui.diagnosticsToggle().attributes["aria-expanded"], "false");
+    assert.equal(ui.diagnosticsContent().hidden, true);
+    assert.equal(ui.diagnosticsContent().style.display, "none");
+    assert.equal(ui.diagnosticsDownload().disabled, true);
+    ui.diagnosticsToggle().listeners.click();
+    assert.equal(ui.diagnosticsToggle().attributes["aria-expanded"], "true");
+    assert.equal(ui.diagnosticsContent().style.display, "block");
+    assert.equal(ui.diagnosticsDownload().disabled, true);
     ui.launcher.listeners.click();
     await ui.settle();
-    const performance = ui.findButton("Save performance report");
-    assert.ok(performance);
-    const cancel = ui.findButton("Cancel");
-    assert.equal(cancel.hidden, false);
-    assert.equal(cancel.style.display, "");
-    assert.equal(performance.hidden, true);
-    assert.equal(performance.style.display, "none");
-
+    assert.equal(ui.diagnosticsDownload(), null);
+    assert.equal(ui.findButton("Cancel").hidden, false);
+    assert.equal(ui.findButton("Save performance report"), undefined);
     ui.pending[0](ok(page([msg("single")], "cursor-end", false)));
     await ui.settle();
     await ui.settle();
-    assert.equal(performance.hidden, false);
-    assert.equal(performance.style.display, "");
-    assert.equal(performance.disabled, false);
-    assert.equal(cancel.hidden, true);
-    assert.equal(cancel.style.display, "none");
+    assert.equal(ui.findButton("Cancel").hidden, true);
+    ui.modeButton().listeners.click();
+    assert.equal(ui.diagnosticsToggle().attributes["aria-expanded"], "false");
+    ui.diagnosticsToggle().listeners.click();
+    assert.equal(ui.diagnosticsDownload().disabled, false);
+    const count = ui.downloads.length;
+    ui.diagnosticsDownload().listeners.click();
+    assert.equal(ui.downloads.length, count + 1);
+    assert.match(ui.downloads.at(-1).filename, /^chatgpt-export-performance-.+\.json$/);
+    const report = JSON.parse(await ui.downloads.at(-1).blob.text());
+    assert.equal(report.profile_format, "chatgpt-export-performance-v1");
+    assert.equal(report.summary.message_records, 1);
+    assert.equal(report.completed, true);
 });
 
-test("performance report action appears after export error without completed pages", async () => {
+test("diagnostics report survives an HTTP error without completed pages", async () => {
     const ui = makeExportUiHarness();
     ui.launcher.listeners.click();
     await ui.settle();
-    const performance = ui.findButton("Save performance report");
-    const cancel = ui.findButton("Cancel");
-    assert.equal(cancel.hidden, false);
-    assert.equal(performance.hidden, true);
+    assert.equal(ui.findButton("Cancel").hidden, false);
     ui.pending[0]({ ok: false, status: 403 });
     await ui.settle();
     await ui.settle();
-    assert.equal(performance.hidden, false);
-    assert.equal(performance.disabled, false);
-    assert.equal(cancel.hidden, true);
-    assert.equal(cancel.style.display, "none");
+    assert.equal(ui.findButton("Cancel").hidden, true);
+    assert.equal(ui.findButton("Save performance report"), undefined);
+    ui.findButton("Close").listeners.click();
+    assert.equal(ui.visiblePanel(), null);
+    ui.modeButton().listeners.click();
+    ui.diagnosticsToggle().listeners.click();
+    assert.equal(ui.diagnosticsDownload().disabled, false);
+    ui.diagnosticsDownload().listeners.click();
+    const report = JSON.parse(await ui.downloads.at(-1).blob.text());
+    assert.equal(report.summary.api_pages_completed, 0);
+    assert.equal(report.summary.request_status_counts["403"], 1);
+    assert.equal(report.completed, false);
 });
-
 
 test("launcher spinner remains active with progress panel closed and resets on success", async () => {
     const ui = makeExportUiHarness();
@@ -820,12 +837,12 @@ test("launcher spinner resets on HTTP error and when export is restarted", async
     await ui.settle();
     assert.equal(ui.spinner.style.display, "none");
     assert.equal(ui.launcher.attributes["aria-busy"], "false");
-    assert.equal(ui.findButton("Save performance report").hidden, false);
+    assert.equal(ui.findButton("Save performance report"), undefined);
     assert.equal(ui.findButton("Cancel").hidden, true);
 
     ui.launcher.listeners.click();
     await ui.settle();
-    assert.equal(ui.findButton("Save performance report").hidden, true);
+    assert.equal(ui.findButton("Save performance report"), undefined);
     assert.equal(ui.findButton("Cancel").hidden, false);
     assert.equal(ui.spinner.style.display, "inline-flex");
     assert.equal(ui.messageRequests, 2);
@@ -859,52 +876,53 @@ test("launcher spinner stops after user cancellation even when panel was dismiss
 });
 
 
-test("Cancel is replaced by Save performance report after user cancellation", async () => {
+test("cancel leaves only Close in progress and diagnostics retain metrics", async () => {
     const ui = makeExportUiHarness();
     ui.launcher.listeners.click();
     await ui.settle();
     const cancel = ui.findButton("Cancel");
-    const performance = ui.findButton("Save performance report");
     assert.equal(cancel.hidden, false);
-    assert.equal(performance.hidden, true);
-
+    assert.equal(ui.findButton("Save performance report"), undefined);
     cancel.listeners.click();
     ui.pending[0](ok(page([msg("interrupted")], "cursor-end", false)));
     await ui.settle();
     await ui.settle();
-
     assert.equal(cancel.hidden, true);
     assert.equal(cancel.style.display, "none");
-    assert.equal(performance.hidden, false);
-    assert.equal(performance.style.display, "");
-    assert.equal(performance.disabled, false);
+    assert.equal(ui.findButton("Save performance report"), undefined);
+    ui.modeButton().listeners.click();
+    ui.diagnosticsToggle().listeners.click();
+    assert.equal(ui.diagnosticsDownload().disabled, false);
+    ui.diagnosticsDownload().listeners.click();
+    const report = JSON.parse(await ui.downloads.at(-1).blob.text());
+    assert.equal(report.completed, false);
+    assert.ok(report.summary.message_http_attempts > 0);
 });
 
-test("reopened running export retains Cancel and keeps performance report hidden", async () => {
+test("reopened running export keeps Cancel and diagnostics disabled", async () => {
     const ui = makeExportUiHarness();
     ui.launcher.listeners.click();
     await ui.settle();
     ui.findButton("Close").listeners.click();
     assert.equal(ui.visiblePanel(), null);
-
     ui.launcher.listeners.click();
-    const panel = ui.visiblePanel();
-    assert.ok(panel);
+    assert.ok(ui.visiblePanel());
     const cancel = ui.findButton("Cancel");
-    const performance = ui.findButton("Save performance report");
     assert.equal(cancel.hidden, false);
     assert.equal(cancel.disabled, false);
-    assert.equal(performance.hidden, true);
-    assert.equal(performance.style.display, "none");
+    assert.equal(ui.findButton("Save performance report"), undefined);
     assert.equal(ui.messageRequests, 1);
-
+    ui.modeButton().listeners.click();
+    ui.diagnosticsToggle().listeners.click();
+    assert.equal(ui.diagnosticsDownload().disabled, true);
+    ui.diagnosticsDownload().listeners.click();
+    assert.equal(ui.downloads.length, 0);
     ui.pending[0]({ ok: false, status: 403 });
     await ui.settle();
     await ui.settle();
     assert.equal(cancel.hidden, true);
-    assert.equal(performance.hidden, false);
+    assert.equal(ui.diagnosticsDownload().disabled, false);
 });
-
 
 test("two-turn batches reduce requests while retaining cursor order and validated output", async () => {
     const urls = [];
@@ -979,7 +997,7 @@ test("rate limiting never triggers batch-size downgrade", async () => {
     assert.equal(exporter.snapshot().fallbackCount, 0);
 });
 
-test("completed export re-run after Close leaves no greyed-out Cancel button", async () => {
+test("completed export re-run after Close retains only Close and report stays available", async () => {
     const ui = makeExportUiHarness();
     ui.launcher.listeners.click();
     await ui.settle();
@@ -987,27 +1005,22 @@ test("completed export re-run after Close leaves no greyed-out Cancel button", a
     await ui.settle();
     await ui.settle();
     assert.equal(ui.findButton("Cancel").hidden, true);
-    assert.equal(ui.findButton("Save performance report").hidden, false);
-
+    assert.equal(ui.findButton("Save performance report"), undefined);
     ui.findButton("Close").listeners.click();
     assert.equal(ui.visiblePanel(), null);
     ui.launcher.listeners.click();
     await ui.settle();
     await ui.settle();
-
     assert.equal(ui.messageRequests, 1, "completed session should not refetch backend");
     assert.ok(ui.visiblePanel());
-    const cancel = ui.findButton("Cancel");
-    assert.ok(cancel);
-    assert.equal(cancel.hidden, true);
-    assert.equal(cancel.style.display, "none");
-    const save = ui.findButton("Save performance report");
-    assert.equal(save.hidden, false);
-    assert.equal(save.style.display, "");
+    assert.equal(ui.findButton("Cancel").hidden, true);
+    assert.equal(ui.findButton("Cancel").style.display, "none");
+    assert.equal(ui.findButton("Save performance report"), undefined);
     assert.equal(ui.spinner.style.display, "none");
-    assert.equal(ui.launcher.attributes["aria-busy"], "false");
+    ui.modeButton().listeners.click();
+    ui.diagnosticsToggle().listeners.click();
+    assert.equal(ui.diagnosticsDownload().disabled, false);
 });
-
 
 test("performance diagnostics track batch sizes and pacing without retaining any URL or cursor", async () => {
     const { createExportProfiler } = require("../src/profiling.js");
