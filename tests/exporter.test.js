@@ -481,6 +481,7 @@ function makeExportUiHarness(storage = null, useAsyncStorage = false,
             addEventListener(name, cb) { this.listeners[name] = cb; },
             appendChild(child) {
                 this.children.push(child);
+                child.parentNode = this;
                 setConnected(child, this.isConnected);
             },
             remove() { setConnected(this, false); },
@@ -1450,8 +1451,10 @@ test("settings show a non-experimental attachment label and subtle installed ver
     assert.equal(checkbox.attributes.role, "checkbox");
     assert.equal(checkbox.attributes["aria-checked"], "false");
     assert.equal(checkbox.children[0].style.visibility, "hidden");
-    assert.equal(checkbox.parentNode?.children?.some?.(
-        child => child.textContent === "Include attachments"), undefined);
+    assert.ok(checkbox.parentNode.children.some(
+        child => child.textContent === "Include attachments"));
+    assert.ok(!checkbox.parentNode.children.some(
+        child => /experimental/i.test(child.textContent || "")));
     const version = ui.versionLabel();
     assert.ok(version);
     assert.equal(version.textContent, "v0.3.1");
