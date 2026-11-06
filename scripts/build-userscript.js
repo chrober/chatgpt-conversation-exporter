@@ -10,16 +10,22 @@ const profiling = fs.readFileSync(path.join(root, "src/profiling.js"), "utf8").t
 const compression = fs.readFileSync(path.join(root, "src/compression.js"), "utf8").trimEnd();
 const attachments = fs.readFileSync(path.join(root, "src/attachments.js"), "utf8").trimEnd();
 const target = path.join(root, "userscripts/chatgpt-conversation-export.user.js");
+const metadataTarget = path.join(root, "userscripts/chatgpt-conversation-export.meta.js");
+const version = require(path.join(root, "package.json")).version;
+const stableBase = "https://raw.githubusercontent.com/chrober/" +
+    "chatgpt-conversation-exporter/main/userscripts/chatgpt-conversation-export";
 
 const metadata = [
     "// ==UserScript==",
     "// @name         ChatGPT Conversation Exporter",
     "// @namespace    https://github.com/chrober/chatgpt-conversation-exporter",
-    "// @version      0.3.1",
+    "// @version      " + version,
     "// @author       Christoph O'Bermair",
     "// @description  Export the current ChatGPT conversation as JSON.",
     "// @match        https://chatgpt.com/*",
     "// @run-at       document-idle",
+    "// @updateURL    " + stableBase + ".meta.js",
+    "// @downloadURL  " + stableBase + ".user.js",
     "// @grant        GM_registerMenuCommand",
     "// @grant        GM.registerMenuCommand",
     "// @grant        GM_getValue",
@@ -28,6 +34,7 @@ const metadata = [
     "// @grant        GM.setValue",
     "// ==/UserScript=="
 ].join("\n");
+const metadataOutput = metadata + "\n";
 
 const output = [
     metadata,
@@ -41,14 +48,24 @@ const output = [
 ].join("\n\n") + "\n";
 
 if (process.argv.includes("--check")) {
-    if (!fs.existsSync(target) || fs.readFileSync(target, "utf8") !== output) {
-        console.error("Userscript stimmt nicht mit dem Build-Quelltext überein.");
-        process.exitCode = 1;
-    } else {
-        console.log("Userscript ist aktuell.");
+    let outdated = false;
+    for (const [filename, expected] of [
+        [target, output],
+        [metadataTarget, metadataOutput]
+    ]) {
+        if (!fs.existsSync(filename) ||
+            fs.readFileSync(filename, "utf8") !== expected) {
+            console.error("Generated file is out of date:",
+                path.relative(root, filename));
+            outdated = true;
+        }
     }
+    if (outdated) process.exitCode = 1;
+    else console.log("Userscript and update metadata are current.");
 } else {
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, output);
-    console.log("Erstellt:", path.relative(root, target));
+    fs.writeFileSync(metadataTarget, metadataOutput);
+    console.log("Generated:", path.relative(root, target),
+        "and", path.relative(root, metadataTarget));
 }
