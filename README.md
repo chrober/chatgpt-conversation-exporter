@@ -2,7 +2,7 @@
 
 A standalone **Tampermonkey/Greasemonkey userscript** that exports **one currently open, original ChatGPT conversation** as JSON. It is not an account-wide export, and it never starts an export automatically on page load.
 
-> **Version 0.3.1.** The paginated exporter and an actual user-uploaded 7z attachment have been successfully exported in Firefox/Tampermonkey. Other attachment types remain best-effort and may require further browser validation. The internal ChatGPT APIs are undocumented and may change without notice.
+> **Version 0.3.2.** The paginated exporter and an actual user-uploaded 7z attachment have been successfully exported in Firefox/Tampermonkey. Other attachment types remain best-effort and may require further browser validation. The internal ChatGPT APIs are undocumented and may change without notice.
 
 ## Install and use
 
@@ -27,6 +27,23 @@ ZIP 3.56 MiB – chatgpt-conversation-<id>.zip
 Active duration sums time spent exporting across resumed attempts but **does not include time paused between attempts**. It is measured as the download starts, so a later performance report can show a slightly longer active duration. During retrieval the progress message simply reports page and record counts; there is no separate "checking for older pages" phase.
 
 See [installation, validation, and troubleshooting](docs/installation-and-validation.md).
+
+## Automatic updates (v0.3.2+)
+
+The installed userscript now declares **stable, explicit Tampermonkey update sources**, regardless of whether it was initially installed from a GitHub release or a branch:
+
+```javascript
+// @updateURL    https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/main/userscripts/chatgpt-conversation-export.meta.js
+// @downloadURL  https://raw.githubusercontent.com/chrober/chatgpt-conversation-exporter/main/userscripts/chatgpt-conversation-export.user.js
+```
+
+Tampermonkey periodically requests the small, metadata-only `[chatgpt-conversation-export.meta.js](userscripts/chatgpt-conversation-export.meta.js)` file to compare its **`@version`** with the installed version. Only when a newer version is detected does it fetch the full installable `.user.js`. The check interval and whether updates are enabled are controlled by the user in Tampermonkey's settings; updates are **not guaranteed to happen immediately**.
+
+Both generated files have **identical metadata headers** and are updated together as part of the deterministic build; `npm run check` fails if either is stale. They always point to **`main`**, never to a feature branch, release-specific asset, or temporary URL. A future release must increase the version number for Tampermonkey to detect it. Changes to unreleased feature branches are not delivered automatically.
+
+**One-time migration:** Install **v0.3.2 or later once** from the stable `main` URL above (or its GitHub Release) to adopt the explicit update sources. Existing installations of v0.3.1 or earlier may keep checking the original installation location and will not automatically discover these metadata settings if installed from an immutable release asset, an obsolete branch, or a manually pasted script. Update/replace the existing installation rather than enabling a duplicate copy. Reload the ChatGPT tab after any update.
+
+
 
 ## Performance settings and persistence
 
@@ -124,7 +141,7 @@ npm run check
 
 Source modules: `src/exporter-core.js` (pagination/integrity), `src/profiling.js` (content-free metrics), `src/compression.js` (ZIP), `src/attachments.js` (experimental discovery and downloads), `src/userscript-entry.js` (browser UI), and `scripts/compare-exports.js` (offline integrity check).
 
-`scripts/build-userscript.js` deterministically produces `userscripts/chatgpt-conversation-export.user.js`. **Edit the sources and rebuild; do not edit only the generated bundle.** GitHub Actions checks JavaScript syntax, generated-bundle equality, and Node tests. CI uses pull-request events for feature branches and push events for `main`; documentation-only changes do not trigger a build.
+`scripts/build-userscript.js` deterministically produces `userscripts/chatgpt-conversation-export.user.js` **and** its metadata-only `.meta.js` companion. **Edit the sources and rebuild; do not edit only the generated bundle.** GitHub Actions checks JavaScript syntax, generated-bundle equality, and Node tests. CI uses pull-request events for feature branches and push events for `main`; documentation-only changes do not trigger a build.
 
 ## Security and limitations
 
