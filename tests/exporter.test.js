@@ -557,6 +557,8 @@ function makeExportUiHarness(storage = null, useAsyncStorage = false,
         document.getElementById("chatgpt-conversation-export-custom-delay");
     const attachmentInput = () =>
         document.getElementById("chatgpt-conversation-export-include-attachments");
+    const versionLabel = () =>
+        document.getElementById("chatgpt-conversation-export-version");
     const findButton = name => elements.filter(e =>
         e.tagName === "button" && e.textContent === name && e.isConnected
     ).at(-1);
@@ -566,7 +568,7 @@ function makeExportUiHarness(storage = null, useAsyncStorage = false,
     const settle = () => new Promise(resolve => setImmediate(resolve));
     return {
         launcher, spinner, pending, findButton, modeButton, toolbar, customTurns,
-        customDelay, attachmentInput, visiblePanel, settle, browserSession, messageUrls,
+        customDelay, attachmentInput, versionLabel, visiblePanel, settle, browserSession, messageUrls,
         get messageRequests() { return messageRequests; }
     };
 }
@@ -1436,4 +1438,45 @@ test("attachment indicator and label click toggle an explicit visible checkbox i
     assert.equal(checkbox.style.backgroundColor, "#354152");
     assert.equal(checkbox.attributes.role, "checkbox");
     assert.equal(row === null || row.tagName === "div", true);
+});
+
+
+test("settings show a non-experimental attachment label and subtle installed version", async () => {
+    const ui = makeExportUiHarness(new Map());
+    await ui.settle();
+    ui.modeButton().listeners.click();
+    const checkbox = ui.attachmentInput();
+    assert.equal(checkbox.attributes["aria-label"], "Include attachments");
+    assert.equal(checkbox.attributes.role, "checkbox");
+    assert.equal(checkbox.attributes["aria-checked"], "false");
+    assert.equal(checkbox.children[0].style.visibility, "hidden");
+    assert.equal(checkbox.parentNode?.children?.some?.(
+        child => child.textContent === "Include attachments"), undefined);
+    const version = ui.versionLabel();
+    assert.ok(version);
+    assert.equal(version.textContent, "v0.3.1");
+    assert.equal(version.attributes["aria-label"], "Exporter version 0.3.1");
+    assert.equal(version.style.fontSize, "10px");
+    assert.equal(version.style.textAlign, "right");
+    assert.equal(version.style.color, "#9ca9bb");
+    assert.equal(version.style.marginTop, "7px");
+    checkbox.listeners.click();
+    assert.equal(checkbox.attributes["aria-checked"], "true");
+    assert.equal(ui.versionLabel().textContent, "v0.3.1");
+    ui.modeButton().listeners.click();
+    assert.equal(ui.versionLabel(), null);
+    ui.modeButton().listeners.click();
+    assert.equal(ui.versionLabel().textContent, "v0.3.1");
+});
+
+test("version in settings matches build metadata, package and performance report", () => {
+    const packageVersion = require("../package.json").version;
+    const source = fs.readFileSync(path.join(__dirname, "../src/profiling.js"), "utf8");
+    const bundler = fs.readFileSync(path.join(__dirname, "../scripts/build-userscript.js"), "utf8");
+    assert.equal(packageVersion, "0.3.1");
+    assert.match(source, /const USERSCRIPT_VERSION = "0\.3\.1";/);
+    assert.match(source, /userscript_version: USERSCRIPT_VERSION/);
+    assert.match(bundler, /\/\/ @version\s+0\.3\.1/);
+    const { createExportProfiler } = require("../src/profiling.js");
+    assert.equal(createExportProfiler().report().userscript_version, packageVersion);
 });
