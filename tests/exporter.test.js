@@ -334,20 +334,21 @@ test("profiling reports an interrupted export as incomplete and never saves auto
     assert.equal(profile.summary.message_http_attempts, 0);
 });
 
-test("generated UI uses bottom-right launcher and a separate performance report action", () => {
+test("generated UI uses bottom-right launcher and a settings-only diagnostics action", () => {
     const entry = fs.readFileSync(path.join(__dirname, "../src/userscript-entry.js"), "utf8");
     assert.match(entry, /button\.textContent = "Export chat as JSON"/);
     assert.match(entry, /right: "18px"/);
     assert.doesNotMatch(entry, /left: "18px"/);
     assert.match(entry, /bottom: "68px"/);
-    assert.match(entry, /Save performance report/);
+    assert.match(entry, /Download performance report/);
+    assert.doesNotMatch(entry, /makeButton\("Save performance report"/);
     assert.match(entry, /API pages/);
     assert.match(entry, /state\.profiler\.noteDownload\(result\)/);
     assert.match(entry, /state\.profiler\.report\(\)/);
 });
 
 
-test("Cancel is replaced by Save performance report on completion", async () => {
+test("Cancel is hidden on completion and the progress panel contains only Close", async () => {
     const code = fs.readFileSync(path.join(
         __dirname, "../userscripts/chatgpt-conversation-export.user.js"
     ), "utf8");
@@ -442,11 +443,11 @@ test("Cancel is replaced by Save performance report on completion", async () => 
         e.textContent === "Export complete – JSON download started."
     ));
     const profileAction = elements.find(e =>
-        e.textContent === "Save performance report"
+        e.textContent === "Save performance report" ||
+        e.textContent === "Download performance report"
     );
-    assert.ok(profileAction);
-    assert.equal(profileAction.hidden, false);
-    assert.equal(profileAction.style.display, "");
+    assert.equal(profileAction, undefined);
+    assert.ok(elements.some(e => e.textContent === "Close"));
 });
 
 
@@ -1091,7 +1092,7 @@ test("v0.2.0 compact launcher has an adjacent gear and only two numeric settings
     assert.equal(svg.children[0].attributes["fill-rule"], "evenodd");
     assert.match(svg.children[0].attributes.d, /M 15 12 A 3 3/);
     assert.equal(settings.attributes["aria-label"],
-        "Export performance settings");
+        "Export settings");
     ui.modeButton().listeners.click();
     assert.equal(ui.customTurns().value, "3");
     assert.equal(ui.customDelay().value, "100");
