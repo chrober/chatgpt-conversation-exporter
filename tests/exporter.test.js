@@ -1493,27 +1493,27 @@ test("settings show a non-experimental attachment label and subtle installed ver
         child => /experimental/i.test(child.textContent || "")));
     const version = ui.versionLabel();
     assert.ok(version);
-    assert.equal(version.textContent, "v0.3.2");
-    assert.equal(version.attributes["aria-label"], "Exporter version 0.3.2");
+    assert.equal(version.textContent, "v0.3.3");
+    assert.equal(version.attributes["aria-label"], "Exporter version 0.3.3");
     assert.equal(version.style.fontSize, "10px");
     assert.equal(version.style.textAlign, "right");
     assert.equal(version.style.color, "#9ca9bb");
     assert.equal(version.style.marginTop, "7px");
     checkbox.listeners.click();
     assert.equal(checkbox.attributes["aria-checked"], "true");
-    assert.equal(ui.versionLabel().textContent, "v0.3.2");
+    assert.equal(ui.versionLabel().textContent, "v0.3.3");
     ui.modeButton().listeners.click();
     assert.equal(ui.versionLabel(), null);
     ui.modeButton().listeners.click();
-    assert.equal(ui.versionLabel().textContent, "v0.3.2");
+    assert.equal(ui.versionLabel().textContent, "v0.3.3");
 });
 
 test("version in settings matches build metadata, package and performance report", () => {
     const packageVersion = require("../package.json").version;
     const source = fs.readFileSync(path.join(__dirname, "../src/profiling.js"), "utf8");
     const bundler = fs.readFileSync(path.join(__dirname, "../scripts/build-userscript.js"), "utf8");
-    assert.equal(packageVersion, "0.3.2");
-    assert.match(source, /const USERSCRIPT_VERSION = "0\.3\.2";/);
+    assert.equal(packageVersion, "0.3.3");
+    assert.match(source, /const USERSCRIPT_VERSION = "0\.3\.3";/);
     assert.match(source, /userscript_version: USERSCRIPT_VERSION/);
     assert.ok(bundler.includes('"// @version      " + version'));
     const { createExportProfiler } = require("../src/profiling.js");
@@ -1561,4 +1561,66 @@ test("update metadata defines required unique tags without executable code", () 
     assert.equal(lines[0], "// ==UserScript==");
     assert.equal(lines.at(-2), "// ==/UserScript==");
     assert.ok(lines.every(x => !x || x.startsWith("// ")));
+});
+
+
+test("diagnostics disclosure is transient and does not change saved export settings", async () => {
+    const saved = new Map();
+    const tab = new Map();
+    const ui = makeExportUiHarness(saved, false, tab);
+    await ui.settle();
+    ui.modeButton().listeners.click();
+    const disclose = ui.diagnosticsToggle();
+    assert.equal(disclose.type, "button");
+    assert.equal(disclose.attributes["aria-controls"],
+        "chatgpt-conversation-export-diagnostics-content");
+    assert.equal(disclose.attributes["aria-expanded"], "false");
+    disclose.listeners.click();
+    assert.equal(disclose.attributes["aria-expanded"], "true");
+    assert.equal(ui.diagnosticsContent().hidden, false);
+    disclose.listeners.click();
+    assert.equal(disclose.attributes["aria-expanded"], "false");
+    assert.equal(ui.diagnosticsContent().hidden, true);
+    assert.equal(ui.diagnosticsContent().style.display, "none");
+    assert.equal(ui.diagnosticsDownload().disabled, true);
+    assert.equal(saved.size, 0);
+    assert.equal(tab.size, 0);
+    ui.modeButton().listeners.click();
+    assert.equal(ui.diagnosticsToggle(), null);
+    ui.modeButton().listeners.click();
+    assert.equal(ui.diagnosticsToggle().attributes["aria-expanded"], "false");
+    assert.equal(ui.versionLabel().textContent, "v0.3.3");
+});
+
+test("diagnostics do not offer a previous conversation's report after navigation", async () => {
+    const ui = makeExportUiHarness();
+    ui.launcher.listeners.click();
+    await ui.settle();
+    ui.pending[0](ok(page([msg("old-chat")], "old", false)));
+    await ui.settle();
+    await ui.settle();
+    ui.modeButton().listeners.click();
+    ui.diagnosticsToggle().listeners.click();
+    assert.equal(ui.diagnosticsDownload().disabled, false);
+    const initialFiles = ui.downloads.length;
+    ui.location.pathname = "/c/11111111-2222-3333-4444-555555555555";
+    ui.diagnosticsDownload().listeners.click();
+    assert.equal(ui.downloads.length, initialFiles);
+    ui.modeButton().listeners.click();
+    ui.modeButton().listeners.click();
+    ui.diagnosticsToggle().listeners.click();
+    assert.equal(ui.diagnosticsDownload().disabled, true);
+    ui.launcher.listeners.click();
+    await ui.settle();
+    assert.equal(ui.diagnosticsDownload(), null);
+    ui.pending[1](ok(page([msg("new-chat")], "new", false)));
+    await ui.settle();
+    await ui.settle();
+    ui.modeButton().listeners.click();
+    ui.diagnosticsToggle().listeners.click();
+    assert.equal(ui.diagnosticsDownload().disabled, false);
+    ui.diagnosticsDownload().listeners.click();
+    const report = JSON.parse(await ui.downloads.at(-1).blob.text());
+    assert.equal(report.summary.message_records, 1);
+    assert.equal(report.summary.api_pages_completed, 1);
 });
