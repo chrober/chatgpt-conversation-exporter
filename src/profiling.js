@@ -1,7 +1,7 @@
 "use strict";
 
 // Single runtime version shared by the settings UI and performance reports.
-const USERSCRIPT_VERSION = "0.3.1";
+const USERSCRIPT_VERSION = "0.3.2";
 
 /**
  * Local-only, content-free performance profiling.

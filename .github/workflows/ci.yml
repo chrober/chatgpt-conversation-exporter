@@ -40,6 +40,7 @@ jobs:
           node --check scripts/compare-exports.js
           node --check src/userscript-entry.js
           node --check userscripts/chatgpt-conversation-export.user.js
+          node --check userscripts/chatgpt-conversation-export.meta.js
           node scripts/build-userscript.js --check
       - name: Node-native unit tests
         run: node --test tests/*.test.js

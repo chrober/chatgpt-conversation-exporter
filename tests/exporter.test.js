@@ -1457,29 +1457,72 @@ test("settings show a non-experimental attachment label and subtle installed ver
         child => /experimental/i.test(child.textContent || "")));
     const version = ui.versionLabel();
     assert.ok(version);
-    assert.equal(version.textContent, "v0.3.1");
-    assert.equal(version.attributes["aria-label"], "Exporter version 0.3.1");
+    assert.equal(version.textContent, "v0.3.2");
+    assert.equal(version.attributes["aria-label"], "Exporter version 0.3.2");
     assert.equal(version.style.fontSize, "10px");
     assert.equal(version.style.textAlign, "right");
     assert.equal(version.style.color, "#9ca9bb");
     assert.equal(version.style.marginTop, "7px");
     checkbox.listeners.click();
     assert.equal(checkbox.attributes["aria-checked"], "true");
-    assert.equal(ui.versionLabel().textContent, "v0.3.1");
+    assert.equal(ui.versionLabel().textContent, "v0.3.2");
     ui.modeButton().listeners.click();
     assert.equal(ui.versionLabel(), null);
     ui.modeButton().listeners.click();
-    assert.equal(ui.versionLabel().textContent, "v0.3.1");
+    assert.equal(ui.versionLabel().textContent, "v0.3.2");
 });
 
 test("version in settings matches build metadata, package and performance report", () => {
     const packageVersion = require("../package.json").version;
     const source = fs.readFileSync(path.join(__dirname, "../src/profiling.js"), "utf8");
     const bundler = fs.readFileSync(path.join(__dirname, "../scripts/build-userscript.js"), "utf8");
-    assert.equal(packageVersion, "0.3.1");
-    assert.match(source, /const USERSCRIPT_VERSION = "0\.3\.1";/);
+    assert.equal(packageVersion, "0.3.2");
+    assert.match(source, /const USERSCRIPT_VERSION = "0\.3\.2";/);
     assert.match(source, /userscript_version: USERSCRIPT_VERSION/);
-    assert.match(bundler, /\/\/ @version\s+0\.3\.1/);
+    assert.ok(bundler.includes('"// @version      " + version'));
     const { createExportProfiler } = require("../src/profiling.js");
     assert.equal(createExportProfiler().report().userscript_version, packageVersion);
+});
+
+
+test("lightweight update manifest has the same header and canonical main URLs", () => {
+    const root = path.join(__dirname, "..");
+    const full = fs.readFileSync(path.join(root,
+        "userscripts/chatgpt-conversation-export.user.js"), "utf8");
+    const meta = fs.readFileSync(path.join(root,
+        "userscripts/chatgpt-conversation-export.meta.js"), "utf8");
+    const buildScript = fs.readFileSync(path.join(root,
+        "scripts/build-userscript.js"), "utf8");
+    const header = full.split("\n\n(function () {")[0];
+    assert.ok(header.startsWith("// ==UserScript==\n"));
+    assert.equal(meta, header + "\n");
+    const version = require("../package.json").version;
+    const lines = meta.trimEnd().split("\n");
+    const field = tag => lines.find(x => x.startsWith("// " + tag + " "));
+    assert.equal(field("@version").trim().split(/\s+/).at(-1), version);
+    assert.equal(lines.at(-1), "// ==/UserScript==");
+    const base = "https://raw.githubusercontent.com/chrober/" +
+        "chatgpt-conversation-exporter/main/userscripts/chatgpt-conversation-export";
+    assert.equal(field("@updateURL").trim().split(/\s+/).at(-1),
+        base + ".meta.js");
+    assert.equal(field("@downloadURL").trim().split(/\s+/).at(-1),
+        base + ".user.js");
+    assert.ok(!meta.includes("refs/heads/feat/"));
+    assert.ok(!meta.includes("/releases/download/"));
+    assert.equal(meta.includes("(function"), false);
+    assert.match(buildScript, /const metadataOutput = metadata/);
+});
+
+test("update metadata defines required unique tags without executable code", () => {
+    const meta = fs.readFileSync(path.join(__dirname,
+        "../userscripts/chatgpt-conversation-export.meta.js"), "utf8");
+    const lines = meta.split("\n");
+    for (const tag of ["@name", "@namespace", "@version",
+        "@updateURL", "@downloadURL"]) {
+        assert.equal(lines.filter(line => line.startsWith("// " + tag + " ")).length,
+            1, "expected exactly one " + tag);
+    }
+    assert.equal(lines[0], "// ==UserScript==");
+    assert.equal(lines.at(-2), "// ==/UserScript==");
+    assert.ok(lines.every(x => !x || x.startsWith("// ")));
 });
